@@ -1,29 +1,28 @@
-
-# CSC494 Research Project  
-## Numerical Error Propagation in Residual Neural ODE Training and Parameter Recovery
+# CSC494 Research Project
+## Error Propagation in Numerical Integration for Residual Neural ODE Parameter Estimation
 
 ### Student
-Lu Wang  Youyou Guo
+Lu Wang  Guo Youyou
 
 ### Supervisor
-Prof. Jonathan Calver  
+Prof. Jonathan Calver
 
 ---
 
-# Project Overview
+## Project Overview
 
-This project investigates how numerical integration error propagates through the training pipeline of Residual Neural ODE models and affects:
+This project investigates how numerical integration error propagates through the training process of Residual Neural ODE models and affects:
 
 - gradient and sensitivity calculations,
 - learned parameter estimates,
 - trajectory prediction accuracy,
 - and recovery of underlying physical dynamics.
 
-The project focuses on understanding how solver choice and discretization step size influence training behavior in scientific machine learning systems.
+The project focuses on understanding how solver choice and discretization step size influence scientific machine learning systems.
 
 ---
 
-# Research Questions
+## Research Questions
 
 The project aims to study:
 
@@ -37,23 +36,17 @@ The project aims to study:
 
 ---
 
-# Model Formulation
+## Model Formulation
 
-The project studies Residual Neural ODE models of the form
+The project studies Residual Neural ODE models of the form:
 
-\[
-\frac{dx}{dt}
-=
-f_{\text{phys}}(x,\phi)
-+
-r_\theta(x),
-\]
+dx/dt = f_phys(x, φ) + rθ(x)
 
 where:
 
-- \(f_{\text{phys}}\) represents known mechanistic dynamics,
-- \(\phi\) denotes physical parameters,
-- \(r_\theta(x)\) is a neural residual correction term.
+- f_phys represents known mechanistic dynamics,
+- φ denotes physical parameters,
+- rθ(x) is a neural residual correction term.
 
 Experiments will compare:
 
@@ -63,23 +56,23 @@ Experiments will compare:
 
 ---
 
-# Benchmark Systems
+## Benchmark Systems
 
 Initial experiments will focus on low-dimensional dynamical systems, including:
 
 - damped nonlinear oscillators,
-- Lotka--Volterra systems.
+- Lotka–Volterra systems.
 
-Synthetic trajectory data will be generated using high-accuracy numerical solvers.
+Synthetic trajectory data will be generated using high-accuracy numerical solvers to provide reference solutions and ground truth parameters.
 
 ---
 
-# Numerical Methods
+## Numerical Methods
 
 The project will compare multiple numerical integration schemes, including:
 
 - Forward Euler,
-- Runge--Kutta methods,
+- Runge–Kutta methods,
 - adaptive solvers,
 - and multistep methods.
 
@@ -91,7 +84,7 @@ Experiments will vary:
 
 ---
 
-# Evaluation Metrics
+## Evaluation Metrics
 
 Performance will be evaluated using:
 
@@ -102,7 +95,7 @@ Performance will be evaluated using:
 
 ---
 
-# Implementation(Tentative)
+## Tentative Implementation
 
 The project will be implemented using:
 
@@ -111,7 +104,28 @@ The project will be implemented using:
 
 Residual dynamics will be represented using small multilayer perceptrons (MLPs).
 
+Classical parameter estimation methods and pure Neural ODE models will first be implemented as baseline models. Residual Neural ODE models will then be introduced and compared against these baselines.
+
 ---
 
-# Repository Structure
+## Repository Structure
 
+
+---
+
+## Current Status
+
+- [x] Initial proposal
+- [ ] Baseline parameter estimation
+- [ ] Pure Neural ODE implementation
+- [ ] Residual Neural ODE implementation
+- [ ] Numerical error propagation experiments
+- [ ] Final analysis and report
+
+---
+
+## References
+
+1. Chen et al., Neural Ordinary Differential Equations, NeurIPS 2018.
+
+2. Calver and Enright, Numerical Methods for Computing Sensitivities for ODEs and DDEs, Numerical Algorithms 2017.
