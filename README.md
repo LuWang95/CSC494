@@ -2,33 +2,33 @@
 ## Error Propagation in Numerical Integration for Residual Neural ODE Parameter Estimation
 
 ### Student
-Lu Wang  Guo Youyou
+Lu Wang, Guo Youyou
 
 ### Supervisor
 Prof. Jonathan Calver
 
 ---
 
-## Project Overview
+# Project Overview
 
 This project investigates how numerical integration error propagates through the training process of Residual Neural ODE models and affects:
 
 - gradient and sensitivity calculations,
 - learned parameter estimates,
 - trajectory prediction accuracy,
-- and recovery of underlying physical dynamics.
+- recovery of underlying physical dynamics.
 
-The project focuses on understanding how solver choice and discretization step size influence scientific machine learning systems.
+The project focuses on understanding how solver choice and discretization error influence scientific machine learning systems.
 
 ---
 
-## Research Questions
+# Research Questions
 
 The project aims to study:
 
 1. How numerical integration error affects gradient and sensitivity calculations during Neural ODE training.
 
-2. How these errors influence learned parameter estimates.
+2. How numerical errors influence learned parameter estimates.
 
 3. Whether improved trajectory accuracy necessarily corresponds to improved recovery of underlying physical parameters.
 
@@ -36,66 +36,119 @@ The project aims to study:
 
 ---
 
-## Model Formulation
+# Model Formulation
 
-The project studies Residual Neural ODE models of the form:
+The project studies Residual Neural ODE models of the form
 
-dx/dt = f_phys(x, φ) + rθ(x)
+$$
+\frac{dx}{dt}
+=
+f_{\mathrm{phys}}(x,\phi)
++
+r_\theta(x)
+$$
 
-where:
+where
 
-- f_phys represents known mechanistic dynamics,
-- φ denotes physical parameters,
-- rθ(x) is a neural residual correction term.
+- $f_{\mathrm{phys}}(x,\phi)$ represents known mechanistic dynamics,
+- $\phi$ denotes physical parameters,
+- $r_\theta(x)$ is a neural residual correction term parameterized by $\theta$.
 
 Experiments will compare:
 
-- classical parameter estimation,
+- classical parameter estimation methods,
 - pure Neural ODE models,
-- and Residual Neural ODE models.
+- Residual Neural ODE models.
 
 ---
 
-## Benchmark Systems
+# Benchmark Systems
 
 Initial experiments will focus on low-dimensional dynamical systems, including:
 
 - damped nonlinear oscillators,
-- Lotka–Volterra systems.
+- Lotka–Volterra predator–prey systems.
 
-Synthetic trajectory data will be generated using high-accuracy numerical solvers to provide reference solutions and ground truth parameters.
+Synthetic trajectory data will be generated using high-accuracy numerical solvers to provide:
+
+- reference trajectories,
+- ground truth parameters,
+- sensitivity baselines.
 
 ---
 
-## Numerical Methods
+# Numerical Methods
 
 The project will compare multiple numerical integration schemes, including:
 
 - Forward Euler,
 - Runge–Kutta methods,
 - adaptive solvers,
-- and multistep methods.
+- multistep methods.
 
 Experiments will vary:
 
-- discretization step size,
+- discretization step size $\Delta t$,
 - solver order,
 - observational noise level.
 
 ---
 
-## Evaluation Metrics
+# Evaluation Metrics
 
 Performance will be evaluated using:
 
-- trajectory prediction error,
-- parameter estimation error,
-- gradient error,
-- and sensitivity to numerical discretization.
+## Trajectory Prediction Error
+
+Given predicted trajectory $\hat{x}(t)$ and reference trajectory $x(t)$,
+
+$$
+\mathrm{MSE}
+=
+\frac{1}{N}
+\sum_{i=1}^N
+\|x_i - \hat{x}_i\|^2
+$$
+
+## Parameter Estimation Error
+
+For estimated parameters $\hat{\theta}$ and ground truth parameters $\theta^\ast$,
+
+$$
+\mathrm{Relative\ Parameter\ Error}
+=
+\frac{
+\|\hat{\theta}-\theta^\ast\|
+}{
+\|\theta^\ast\|
+}
+$$
+
+## Gradient Error
+
+The project will compare gradients computed using different numerical solvers against high-accuracy reference gradients:
+
+$$
+E_{\mathrm{grad}}
+=
+\left\|
+\nabla_\theta L_{\mathrm{solver}}
+-
+\nabla_\theta L_{\mathrm{ref}}
+\right\|_2
+$$
+
+## Sensitivity to Numerical Discretization
+
+The project will study how learned dynamics vary under different choices of:
+
+- step size,
+- solver order,
+- adaptive tolerances.
 
 ---
 
-## Tentative Implementation
+# Tentative Implementation
 
 The project will be implemented using:
 
@@ -108,12 +161,13 @@ Classical parameter estimation methods and pure Neural ODE models will first be 
 
 ---
 
-## Repository Structure
+# Repository Structure
+
 
 
 ---
 
-## Current Status
+# Current Status
 
 - [x] Initial proposal
 - [ ] Baseline parameter estimation
@@ -124,8 +178,10 @@ Classical parameter estimation methods and pure Neural ODE models will first be 
 
 ---
 
-## References
+# References
 
-1. Chen et al., Neural Ordinary Differential Equations, NeurIPS 2018.
+1. Chen, T. Q., Rubanova, Y., Bettencourt, J., & Duvenaud, D.  
+   *Neural Ordinary Differential Equations*, NeurIPS 2018.
 
-2. Calver and Enright, Numerical Methods for Computing Sensitivities for ODEs and DDEs, Numerical Algorithms 2017.
+2. Calver, J., & Enright, W.  
+   *Numerical Methods for Computing Sensitivities for ODEs and DDEs*, Numerical Algorithms, 2017.
