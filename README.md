@@ -40,19 +40,19 @@ The project aims to study:
 
 The project studies Residual Neural ODE models of the form
 
-$$
+```math
 \frac{dx}{dt}
 =
 f_{\mathrm{phys}}(x,\phi)
 +
 r_\theta(x)
-$$
+```
 
 where
 
-- $f_{\mathrm{phys}}(x,\phi)$ represents known mechanistic dynamics,
-- $\phi$ denotes physical parameters,
-- $r_\theta(x)$ is a neural residual correction term parameterized by $\theta$.
+- $begin:math:text$ f\_\{\\mathrm\{phys\}\}\(x\,\\phi\) $end:math:text$ represents known mechanistic dynamics,
+- $begin:math:text$ \\phi $end:math:text$ denotes physical parameters,
+- $begin:math:text$ r\_\\theta\(x\) $end:math:text$ is a neural residual correction term parameterized by $begin:math:text$ \\theta $end:math:text$.
 
 Experiments will compare:
 
@@ -88,7 +88,7 @@ The project will compare multiple numerical integration schemes, including:
 
 Experiments will vary:
 
-- discretization step size $\Delta t$,
+- discretization step size $begin:math:text$ \\Delta t $end:math:text$,
 - solver order,
 - observational noise level.
 
@@ -100,21 +100,21 @@ Performance will be evaluated using:
 
 ## Trajectory Prediction Error
 
-Given predicted trajectory $\hat{x}(t)$ and reference trajectory $x(t)$,
+Given predicted trajectory $begin:math:text$ \\hat\{x\}\(t\) $end:math:text$ and reference trajectory $begin:math:text$ x\(t\) $end:math:text$,
 
-$$
+```math
 \mathrm{MSE}
 =
 \frac{1}{N}
 \sum_{i=1}^N
 \|x_i - \hat{x}_i\|^2
-$$
+```
 
 ## Parameter Estimation Error
 
-For estimated parameters $\hat{\theta}$ and ground truth parameters $\theta^\ast$,
+For estimated parameters $begin:math:text$ \\hat\{\\theta\} $end:math:text$ and ground truth parameters $begin:math:text$ \\theta\^\\ast $end:math:text$,
 
-$$
+```math
 \mathrm{Relative\ Parameter\ Error}
 =
 \frac{
@@ -122,13 +122,13 @@ $$
 }{
 \|\theta^\ast\|
 }
-$$
+```
 
 ## Gradient Error
 
 The project will compare gradients computed using different numerical solvers against high-accuracy reference gradients:
 
-$$
+```math
 E_{\mathrm{grad}}
 =
 \left\|
@@ -136,7 +136,7 @@ E_{\mathrm{grad}}
 -
 \nabla_\theta L_{\mathrm{ref}}
 \right\|_2
-$$
+```
 
 ## Sensitivity to Numerical Discretization
 
@@ -163,9 +163,6 @@ Classical parameter estimation methods and pure Neural ODE models will first be 
 
 # Repository Structure
 
-
-
----
 
 # Current Status
 
