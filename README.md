@@ -50,9 +50,11 @@ r_\theta(x)
 
 where
 
-- $begin:math:text$ f\_\{\\mathrm\{phys\}\}\(x\,\\phi\) $end:math:text$ represents known mechanistic dynamics,
-- $begin:math:text$ \\phi $end:math:text$ denotes physical parameters,
-- $begin:math:text$ r\_\\theta\(x\) $end:math:text$ is a neural residual correction term parameterized by $begin:math:text$ \\theta $end:math:text$.
+- $f_{\mathrm{phys}}(x,\phi)$ represents known mechanistic dynamics,
+
+- $\phi$ denotes physical parameters,
+
+- $r_\theta(x)$ is a neural residual correction term parameterized by $\theta$.
 
 Experiments will compare:
 
