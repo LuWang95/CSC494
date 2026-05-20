@@ -1,6 +1,9 @@
 import jax.numpy as jnp
+import Solver
 from jax import grad, jit, vmap
 from jax import random
+from Solver import*
+
 
 # A helper function to randomly initialize weights and biases
 # for a dense neural network layer
@@ -14,7 +17,7 @@ def init_network_params(sizes, key):
   return [random_layer_params(m, n, k) for m, n, k in zip(sizes[:-1], sizes[1:], keys)]
 
 # we assume this is for the predator-prey model, so the dimension of input_layer is 2：
-layer_sizes = [2, 512, 512, 1]
+layer_sizes = [2, 512, 512, 2]
 step_size = 0.01
 num_epochs = 10
 batch_size = 128
@@ -32,5 +35,11 @@ def predict(parameters, x):
     final_w, final_b = parameters[-1]
     return jnp.dot(final_w, activations) + final_b
 
-batched_predict = vmap(predict,in_axes=(0, None, 0, None))
+batched_predict = vmap(predict,in_axes=(0))
+
+def loss(parameters, x0, true_trajectory,h, ratio):
+    num_steps = (true_trajectory.shape[0] - 1) * ratio
+    pred_full = roll_out(x0,h,num_steps,parameters)
+    pred_useful = pred_full[::ratio]
+    return jnp.mean((true_trajectory - pred_useful)**2)
 
