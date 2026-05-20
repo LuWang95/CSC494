@@ -1,14 +1,14 @@
-from NN import predict
+
 import jax.numpy as jnp
 from jax import lax
 
-def forward_euler(x,h,parameters):
-    d_x = predict(parameters,x)
+def forward_euler(x,h,parameters,f):
+    d_x = f(parameters,x)
     return x+h*d_x
 
-def roll_out(x0,h,num_steps,parameters,):
+def roll_out(x0,h,num_steps,parameters,f):
     def step(x,_):
-        x_next = forward_euler(x,h,parameters)
+        x_next = forward_euler(x,h,parameters,f)
         return x_next,x_next
     _, xs = lax.scan(step,x0,None,num_steps)
 

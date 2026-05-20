@@ -1,5 +1,4 @@
 import jax.numpy as jnp
-import Solver
 from jax import grad, jit, vmap
 from jax import random
 from Solver import*
@@ -13,7 +12,7 @@ def random_layer_params(m, n, key, scale=1e-2):
 
 # Initialize all layers for a fully-connected neural network with sizes "sizes"
 def init_network_params(sizes, key):
-  keys = random.split(key, len(sizes))
+  keys = random.split(key, len(sizes)-1)
   return [random_layer_params(m, n, k) for m, n, k in zip(sizes[:-1], sizes[1:], keys)]
 
 # we assume this is for the predator-prey model, so the dimension of input_layer is 2：
@@ -35,11 +34,15 @@ def predict(parameters, x):
     final_w, final_b = parameters[-1]
     return jnp.dot(final_w, activations) + final_b
 
-batched_predict = vmap(predict,in_axes=(0))
+batched_predict = vmap(predict,in_axes=(None,0))
 
 def loss(parameters, x0, true_trajectory,h, ratio):
     num_steps = (true_trajectory.shape[0] - 1) * ratio
-    pred_full = roll_out(x0,h,num_steps,parameters)
+    pred_full = roll_out(x0,h,num_steps,parameters,predict)
     pred_useful = pred_full[::ratio]
     return jnp.mean((true_trajectory - pred_useful)**2)
 
+def update(parameters, x0,true_trajectory,h, ratio):
+  grads = grad(loss)(parameters, x0, true_trajectory,h,ratio)
+  return [(w - step_size * dw, b - step_size * db)
+          for (w, b), (dw, db) in zip(parameters, grads)]
