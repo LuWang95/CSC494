@@ -24,19 +24,6 @@ optimizer = optax.adam(step_size)
 opt_state = optimizer.init(params)
 
 
-# A helper function to randomly initialize weights and biases
-# for a dense neural network layer
-def random_layer_params(m, n, key, scale=1e-2):
-  w_key, b_key = random.split(key)
-  return scale * random.normal(w_key, (n, m)), scale * random.normal(b_key, (n,))
-
-# Initialize all layers for a fully-connected neural network with sizes "sizes"
-def init_network_params(sizes, key):
-  keys = random.split(key, len(sizes)-1)
-  return [random_layer_params(m, n, k) for m, n, k in zip(sizes[:-1], sizes[1:], keys)]
-
-
-
 def relu(x):
   return jnp.maximum(x, 0)
 
