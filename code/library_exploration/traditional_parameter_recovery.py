@@ -1,9 +1,8 @@
 import jax.numpy as jnp
-import optax
 from jax import grad, jit, vmap
 from jax import random
 from Solver import*
-
+import optax
 
 # -----------------------------
 # Synthetic data from analytic ODE
@@ -16,8 +15,14 @@ T = 5.0
 num_observed = 101
 t_obs = jnp.linspace(0.0, T, num_observed)
 observed_trajectory = x0_true * jnp.exp(-k_true * t_obs[:, None])
-ratio = 10
+ratio = 100
+step_size = 1e-2
 h_model = (t_obs[1] - t_obs[0]) / ratio
+num_epochs = 2000
+params = jnp.array(0.1)  # learned scalar k in dx/dt = -k x
+optimizer = optax.adam(step_size)
+opt_state = optimizer.init(params)
+
 
 # A helper function to randomly initialize weights and biases
 # for a dense neural network layer
@@ -31,25 +36,12 @@ def init_network_params(sizes, key):
   return [random_layer_params(m, n, k) for m, n, k in zip(sizes[:-1], sizes[1:], keys)]
 
 
-layer_sizes = [1, 32, 32, 1]
-step_size = 1e-2
-num_epochs = 5000
-batch_size = 128
-n_targets = 10
-params = init_network_params(layer_sizes, random.key(0))
-optimizer = optax.adam(step_size)
-opt_state = optimizer.init(params)
 
-# def relu(x):
-#   return jnp.maximum(x, 0)
+def relu(x):
+  return jnp.maximum(x, 0)
 
 def predict(parameters, x):
-    activations = x
-    for w,b in parameters[:-1]:
-        outputs = jnp.dot(w,activations) + b
-        activations = jnp.tanh(outputs)
-    final_w, final_b = parameters[-1]
-    return jnp.dot(final_w, activations) + final_b
+    return -parameters * x
 
 batched_predict = vmap(predict,in_axes=(None,0))
 
@@ -67,16 +59,15 @@ def update(parameters, opt_state, x0, true_trajectory, h, step_ratio):
   return parameters, opt_state
 
 
-
-
-
-
 for epoch in range(num_epochs):
     params, opt_state = update(params, opt_state, x0_true, observed_trajectory, h_model, ratio)
-
     if epoch % 100 == 0:
         l = loss(params, x0_true, observed_trajectory, h_model, ratio)
         print(f"epoch {epoch}, loss = {l}")
+
+
+print("learned k =", params)
+print("true k =", k_true)
 
 # -----------------------------
 # Check prediction after training
@@ -103,5 +94,5 @@ test_x = jnp.array([[0.5], [1.0], [2.0]])
 
 for x in test_x:
     print("x =", x)
-    print("NN f(x) =", predict(params, x))
+    print("learned f(x) =", predict(params, x))
     print("true f(x) =", -k_true * x)
