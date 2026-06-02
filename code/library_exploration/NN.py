@@ -33,7 +33,7 @@ def init_network_params(sizes, key):
 
 layer_sizes = [1, 32, 32, 1]
 step_size = 1e-2
-num_epochs = 5000
+num_epochs = 2000
 batch_size = 128
 n_targets = 10
 params = init_network_params(layer_sizes, random.key(0))

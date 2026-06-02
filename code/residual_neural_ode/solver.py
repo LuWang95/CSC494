@@ -16,9 +16,9 @@ def forward_euler(x,h,rhs,params):
     d_x = rhs(x,params)
     return x+h*d_x
 
-def roll_out(x0,h,rhs,params,num_steps):
+def roll_out(x0,h,rhs,params,num_steps,method):
     def step(x,_):
-        x_next = forward_euler(x,h,rhs,params)
+        x_next = method(x,h,rhs,params)
         return x_next,x_next
     _, xs = lax.scan(step,x0,None,length = num_steps)
     return jnp.concatenate([x0[None,:], xs], axis=0)
