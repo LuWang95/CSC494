@@ -25,7 +25,7 @@ num_observed = 101
 t_obs = jnp.linspace(0.0, T, num_observed)
 observed_batch = vmap(lambda x0: generate_true_trajectory(t_obs[:,None], x0))(x0_batch)
 # observed_batch = vmap(generate_true_trajectory,in_axes=(None,0))(t_obs[:,],x0_batch) alternate syntax
-ratio = 1
+ratio = 10
 h_model = (t_obs[1] - t_obs[0]) / ratio
 
 # A helper function to randomly initialize weights and biases
@@ -44,9 +44,18 @@ layer_sizes = [1, 32, 32, 1]
 step_size = 1e-2
 num_epochs = 5000
 nn_params = init_network_params(layer_sizes, random.key(0))
-f_physics_params = jnp.array([-0.1])
+f_physics_params = jnp.array([-1.0])
 params = {"nn_params": nn_params, "f_physics": f_physics_params}
-optimizer = optax.adam(step_size)
+optimizer = optax.multi_transform(
+    {
+        "train": optax.adam(step_size),
+        "freeze": optax.set_to_zero()
+    },
+    {
+        "nn_params": "train",
+        "f_physics": "freeze"
+    }
+)
 opt_state = optimizer.init(params)
 
 
