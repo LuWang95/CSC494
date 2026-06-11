@@ -39,7 +39,7 @@ y0_batch = jnp.array([
 T = 5
 num_observed = 101
 t_obs = jnp.linspace(0.0, T, num_observed)
-ratio = 10
+ratio = 20
 h_model = (t_obs[1] - t_obs[0]) / ratio
 
 def lotka_volterra(t, y, args):
@@ -91,9 +91,18 @@ step_size = 3e-3
 num_epochs = 30000
 nn_params = init_network_params(layer_sizes, random.key(0))
 # incomplete physics: linear growth/decay only (missing xy interaction)
-f_physics_params = jnp.array([0.5, -1])
+f_physics_params = jnp.array([1.0, -1.5])
 params = {"nn_params": nn_params, "f_physics": f_physics_params}
-optimizer = optax.adam(step_size)
+optimizer = optax.multi_transform(
+    {
+        "train": optax.adam(step_size),
+        "freeze": optax.set_to_zero()
+    },
+    {
+        "nn_params": "train",
+        "f_physics": "freeze"
+    }
+)
 opt_state = optimizer.init(params)
 
 
@@ -145,36 +154,21 @@ min_delta = 1e-7
 counter = 0
 
 for epoch in range(num_epochs):
-    params, opt_state = update(
-        params,
-        opt_state,
-        y0_batch,
-        observed_batch,
-        h_model,
-        ratio
-    )
+    params, opt_state = update(params, opt_state,y0_batch,
+                               observed_batch, h_model, ratio)
 
+    l = batch_loss(params, y0_batch, observed_batch, h_model, ratio)
+    if best_loss - float(l) > min_delta:
+        best_loss = float(l)
+        best_params = params
+        counter = 0
+    else:
+        counter += 1
     if epoch % 100 == 0:
-        l = batch_loss(
-            params,
-            y0_batch,
-            observed_batch,
-            h_model,
-            ratio
-        )
         print(f"epoch {epoch}, loss = {l}")
-        if best_loss - float(l) > min_delta:
-            best_loss = float(l)
-            best_params = params
-            counter = 0
-        else:
-            counter += 100
-        if counter >= patience:
-            print(
-                f"Early stopping at epoch {epoch}, "
-                f"best loss = {best_loss}"
-            )
-            break
+    if counter >= patience:
+        print(f"Early stopping at epoch {epoch}, best loss = {best_loss}")
+        break
 
 params = best_params
 
@@ -250,7 +244,6 @@ test_states = jnp.array([
     [20.0, 30.0],
 ])
 
-
 # -----------------------------
 # Console summary
 # -----------------------------
@@ -275,7 +268,7 @@ traj_rel_error = (
 print("\n" + "=" * 80)
 print("EXPERIMENT SUMMARY")
 print("=" * 80)
-print(f"experiment type        : wrong physics, trainable")
+print(f"experiment type        : true physics, fixed")
 print(f"ratio                  : {ratio}")
 print(f"h_model                : {float(h_model):.6f}")
 print(f"best loss              : {best_loss:.6e}")
@@ -347,7 +340,7 @@ print(f"model vector field rel error: {float(model_vf_rel_error):.6e}")
 print("=" * 80)
 
 results = {
-    "experiment_type": "wrong_physics_trainable",
+    "experiment_type": "true_physics_fixed",
     "best_loss": float(best_loss),
     "ratio": ratio,
     "h_model": float(h_model),

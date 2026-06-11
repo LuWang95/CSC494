@@ -93,7 +93,16 @@ nn_params = init_network_params(layer_sizes, random.key(0))
 # incomplete physics: linear growth/decay only (missing xy interaction)
 f_physics_params = jnp.array([0.5, -1])
 params = {"nn_params": nn_params, "f_physics": f_physics_params}
-optimizer = optax.adam(step_size)
+optimizer = optax.multi_transform(
+    {
+        "train": optax.adam(step_size),
+        "freeze": optax.set_to_zero()
+    },
+    {
+        "nn_params": "train",
+        "f_physics": "freeze"
+    }
+)
 opt_state = optimizer.init(params)
 
 
@@ -275,7 +284,7 @@ traj_rel_error = (
 print("\n" + "=" * 80)
 print("EXPERIMENT SUMMARY")
 print("=" * 80)
-print(f"experiment type        : wrong physics, trainable")
+print(f"experiment type        : wrong physics, fixed")
 print(f"ratio                  : {ratio}")
 print(f"h_model                : {float(h_model):.6f}")
 print(f"best loss              : {best_loss:.6e}")
@@ -347,7 +356,7 @@ print(f"model vector field rel error: {float(model_vf_rel_error):.6e}")
 print("=" * 80)
 
 results = {
-    "experiment_type": "wrong_physics_trainable",
+    "experiment_type": "wrong_physics_fixed",
     "best_loss": float(best_loss),
     "ratio": ratio,
     "h_model": float(h_model),
@@ -372,3 +381,4 @@ results = {
 
 with open("wrong_physics_fixed.pkl", "wb") as f:
     pickle.dump(results, f)
+
