@@ -370,5 +370,5 @@ results = {
     "states": states,
 }
 
-with open("wrong_physics_fixed.pkl", "wb") as f:
+with open("wrong_physics_trainable.pkl", "wb") as f:
     pickle.dump(results, f)

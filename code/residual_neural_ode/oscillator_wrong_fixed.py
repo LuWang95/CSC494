@@ -13,44 +13,43 @@ from functools import partial
 
 # -----------------------------
 
-# Lotka-Volterra model (x = prey, y = predator)
-# dx/dt = a x - b x y
-# dy/dt = -r y + z x y
-# state y = [prey, predator]
+# Duffing oscillator model (x = displacement, v = velocity)
+# dx/dt = v
+# dv/dt = -rv - ax - bx^3
+# state y = [x, v]
 # -----------------------------
 
+r = 0.2
 a = 1
-b = 0.05
-r = 1.5
-z = 0.03
+b = 0.1
 
 y0_batch = jnp.array([
-    [15.0, 25.0],
-    [10.0, 20.0],
-    [20.0, 30.0],
-    [12.0, 22.0],
-    [18.0, 28.0],
-    [8.0, 18.0],
-    [22.0, 26.0],
-    [16.0, 15.0],
-
+    [-2.0, -1.0],
+    [-2.0,  1.0],
+    [-1.0, -2.0],
+    [-1.0,  2.0],
+    [ 1.0, -2.0],
+    [ 1.0,  2.0],
+    [ 2.0, -1.0],
+    [ 2.0,  1.0],
 ])
 
 T = 5
 num_observed = 101
 t_obs = jnp.linspace(0.0, T, num_observed)
-ratio = 20
+ratio = 10
 h_model = (t_obs[1] - t_obs[0]) / ratio
 
-def lotka_volterra(t, y, args):
-    prey, predator = y[0], y[1]
-    dxdt = a * prey - b * prey * predator
-    dydt = -r * predator + z * prey * predator
-    return jnp.array([dxdt, dydt])
+def duffing(t, y, args):
+    x,v = y[0], y[1]
+    dx_dt = v
+    dv_dt = -r * v -a * x - b*x**3
+
+    return jnp.array([dx_dt, dv_dt])
 
 
 def solve_reference(y0):
-    term = diffrax.ODETerm(lotka_volterra)
+    term = diffrax.ODETerm(duffing)
     solver = diffrax.Tsit5()
     saveat = diffrax.SaveAt(ts=t_obs)
     stepsize_controller = diffrax.PIDController(
@@ -91,7 +90,7 @@ step_size = 3e-3
 num_epochs = 30000
 nn_params = init_network_params(layer_sizes, random.key(0))
 # incomplete physics: linear growth/decay only (missing xy interaction)
-f_physics_params = jnp.array([1.0, -1.5])
+f_physics_params = jnp.array([0.1,0.5])
 params = {"nn_params": nn_params, "f_physics": f_physics_params}
 optimizer = optax.multi_transform(
     {
@@ -106,7 +105,7 @@ optimizer = optax.multi_transform(
 opt_state = optimizer.init(params)
 
 
-state_scale = jnp.array([50.0, 50.0])
+state_scale = jnp.array([3.0, 3.0])
 def nn(y, nn_parameters):
     activations = y / state_scale
     for w, b in nn_parameters[:-1]:
@@ -117,11 +116,8 @@ def nn(y, nn_parameters):
 
 ## fphysics only learns linear growth/decay
 def f_physics(y, f_physics_params):
-    prey, predator = y[0], y[1]
-    return jnp.array([
-        f_physics_params[0] * prey,
-        f_physics_params[1] * predator,
-    ])
+    x, v = y[0], y[1]
+    return jnp.array([v, -f_physics_params[0] * x - f_physics_params[1] * v,])
 
 def model_rhs(y, params):
     return f_physics(y, params["f_physics"]) + nn(y, params["nn_params"])
@@ -154,21 +150,36 @@ min_delta = 1e-7
 counter = 0
 
 for epoch in range(num_epochs):
-    params, opt_state = update(params, opt_state,y0_batch,
-                               observed_batch, h_model, ratio)
+    params, opt_state = update(
+        params,
+        opt_state,
+        y0_batch,
+        observed_batch,
+        h_model,
+        ratio
+    )
 
-    l = batch_loss(params, y0_batch, observed_batch, h_model, ratio)
-    if best_loss - float(l) > min_delta:
-        best_loss = float(l)
-        best_params = params
-        counter = 0
-    else:
-        counter += 1
     if epoch % 100 == 0:
+        l = batch_loss(
+            params,
+            y0_batch,
+            observed_batch,
+            h_model,
+            ratio
+        )
         print(f"epoch {epoch}, loss = {l}")
-    if counter >= patience:
-        print(f"Early stopping at epoch {epoch}, best loss = {best_loss}")
-        break
+        if best_loss - float(l) > min_delta:
+            best_loss = float(l)
+            best_params = params
+            counter = 0
+        else:
+            counter += 100
+        if counter >= patience:
+            print(
+                f"Early stopping at epoch {epoch}, "
+                f"best loss = {best_loss}"
+            )
+            break
 
 params = best_params
 
@@ -181,47 +192,47 @@ num_steps = int((observed_batch.shape[1] - 1) * ratio)
 pred_full = roll_out(y0_batch[0], h_model, model_rhs, params, num_steps, rk4)
 pred_obs = pred_full[::ratio]
 
-## trajectory fitting (both species)
+## trajectory fitting (position and velocity)
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-species = ("prey", "predator")
+components = ("x", "v")
 for i, ax in enumerate(axes):
     ax.plot(t_obs, observed_batch[index, :, i], "--", alpha=0.7, label="true")
     ax.plot(t_obs, pred_obs[:, i], alpha=0.9, label="predicted")
     ax.set_xlabel("t")
-    ax.set_ylabel(species[i])
-    ax.set_title(f"Trajectory fitting: {species[i]}")
+    ax.set_ylabel(components[i])
+    ax.set_title(f"Trajectory fitting: {components[i]}")
     ax.legend()
     ax.grid(True)
 plt.tight_layout()
 plt.show()
 
 ## phase portrait: true vs learned vector field
-prey_min, prey_max = 5.0, 25.0
-pred_min, pred_max = 10.0, 40.0
+x_min, x_max = -3.0, 3.0
+v_min, v_max = -3.0, 3.0
 nx, ny = 20, 20
-prey_vals = jnp.linspace(prey_min, prey_max, nx)
-pred_vals = jnp.linspace(pred_min, pred_max, ny)
-Prey, Pred = jnp.meshgrid(prey_vals, pred_vals)
-states = jnp.stack([Prey.reshape(-1), Pred.reshape(-1)], axis=1)
+x_vals = jnp.linspace(x_min, x_max, nx)
+v_vals = jnp.linspace(v_min, v_max, ny)
+X, V = jnp.meshgrid(x_vals, v_vals)
+states = jnp.stack([X.reshape(-1), V.reshape(-1)], axis=1)
 
-def true_lv_rhs(state):
-    return lotka_volterra(0.0, state, None)
+def true_oscillator_rhs(state):
+    return duffing(0.0, state, None)
 
-true_vf = vmap(true_lv_rhs)(states)
+true_vf = vmap(true_oscillator_rhs)(states)
 physics_vf = vmap(lambda s: f_physics(s, params["f_physics"]))(states)
 nn_vf = vmap(lambda s: nn(s, params["nn_params"]))(states)
 model_vf = vmap(lambda s: model_rhs(s, params))(states)
 
 def plot_quiver(ax, vf, title):
     U = vf[:, 0].reshape(ny, nx)
-    V = vf[:, 1].reshape(ny, nx)
-    ax.quiver(Prey, Pred, U, V, angles="xy")
-    ax.set_xlabel("prey")
-    ax.set_ylabel("predator")
+    W = vf[:, 1].reshape(ny, nx)
+    ax.quiver(X, V, U, W, angles="xy")
+    ax.set_xlabel("x")
+    ax.set_ylabel("v")
     ax.set_title(title)
 
 fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-plot_quiver(axes[0], true_vf, "true Lotka-Volterra")
+plot_quiver(axes[0], true_vf, "true Duffing oscillator")
 plot_quiver(axes[1], physics_vf, "physics part")
 plot_quiver(axes[2], model_vf, "learned model")
 plt.tight_layout()
@@ -239,10 +250,12 @@ plt.show()
 # Check learned vector field at sample states
 # -----------------------------
 test_states = jnp.array([
-    [15.0, 25.0],
-    [10.0, 20.0],
-    [20.0, 30.0],
+    [-2.0, -1.0],
+    [-1.0,  2.0],
+    [ 1.0, -2.0],
+    [ 2.0,  1.0],
 ])
+
 
 # -----------------------------
 # Console summary
@@ -268,7 +281,7 @@ traj_rel_error = (
 print("\n" + "=" * 80)
 print("EXPERIMENT SUMMARY")
 print("=" * 80)
-print(f"experiment type        : true physics, fixed")
+print(f"experiment type        : oscillator_wrong_physics_trainable")
 print(f"ratio                  : {ratio}")
 print(f"h_model                : {float(h_model):.6f}")
 print(f"best loss              : {best_loss:.6e}")
@@ -279,22 +292,22 @@ print("\nTrajectory check: first 5 observed points")
 print("-" * 80)
 print(
     f"{'t':>8} | "
-    f"{'pred prey':>12} {'true prey':>12} {'abs err':>10} | "
-    f"{'pred pred':>12} {'true pred':>12} {'abs err':>10}"
+    f"{'pred x':>12} {'true x':>12} {'abs err':>10} | "
+    f"{'pred v':>12} {'true v':>12} {'abs err':>10}"
 )
 
 print("-" * 80)
 for i in range(5):
-    prey_err = abs(float(pred_obs[i, 0] - observed_batch[index, i, 0]))
-    pred_err = abs(float(pred_obs[i, 1] - observed_batch[index, i, 1]))
+    x_err = abs(float(pred_obs[i, 0] - observed_batch[index, i, 0]))
+    v_err = abs(float(pred_obs[i, 1] - observed_batch[index, i, 1]))
     print(
         f"{float(t_obs[i]):8.3f} | "
         f"{float(pred_obs[i,0]):12.6f} "
         f"{float(observed_batch[index,i,0]):12.6f} "
-        f"{prey_err:10.4e} | "
+        f"{x_err:10.4e} | "
         f"{float(pred_obs[i,1]):12.6f} "
         f"{float(observed_batch[index,i,1]):12.6f} "
-        f"{pred_err:10.4e}"
+        f"{v_err:10.4e}"
     )
 
 print("\nVector field check at sample states")
@@ -315,7 +328,7 @@ for state in test_states:
     nn_res = nn(state, params["nn_params"])
     phys = f_physics(state, params["f_physics"])
     model = model_rhs(state, params)
-    true = lotka_volterra(0.0, state, None)
+    true = duffing(0.0, state, None)
     true_res = true - phys
     rhs_rel = jnp.linalg.norm(model - true) / (jnp.linalg.norm(true) + eps)
     res_rel = jnp.linalg.norm(nn_res - true_res) / (jnp.linalg.norm(true_res) + eps)
@@ -340,7 +353,7 @@ print(f"model vector field rel error: {float(model_vf_rel_error):.6e}")
 print("=" * 80)
 
 results = {
-    "experiment_type": "true_physics_fixed",
+    "experiment_type": "oscillator_wrong_physics_fixed",
     "best_loss": float(best_loss),
     "ratio": ratio,
     "h_model": float(h_model),
@@ -363,5 +376,6 @@ results = {
     "states": states,
 }
 
-with open("true_physics_fixed.pkl", "wb") as f:
+with open("oscillator_wrong_physics_fixed.pkl", "wb") as f:
     pickle.dump(results, f)
+
