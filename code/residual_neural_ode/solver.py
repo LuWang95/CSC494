@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from jax import lax
 
 
-def solver_step(x, h, rhs, params):
+def solver_step(y, h, rhs, params):
     """
     One numerical step.
     x: current state
@@ -12,27 +12,27 @@ def solver_step(x, h, rhs, params):
     """
 
     ...
-def forward_euler(x,h,rhs,params):
-    d_x = rhs(x,params)
-    return x+h*d_x
+def forward_euler(y,h,rhs,params):
+    d_y = rhs(y,params)
+    return y+h*d_y
 
-def heun(x,h,rhs,params):
-    d_x_current = rhs(x,params)
-    d_x_next = rhs(x + h*d_x_current,params)
-    return x + 1/2 * h * (d_x_current + d_x_next)
+def heun(y, h, rhs, params):
+    d_y_current = rhs(y, params)
+    d_y_next = rhs(y + h * d_y_current, params)
+    return y + 1/2 * h * (d_y_current + d_y_next)
 
-def rk4(x, h, rhs, params):
-    k1 = rhs(x, params)
-    k2 = rhs(x + h/2 * k1, params)
-    k3 = rhs(x + h/2 * k2, params)
-    k4 = rhs(x + h * k3, params)
-    return x + h/6 * (k1 + 2*k2 + 2*k3 + k4)
+def rk4(y, h, rhs, params):
+    k1 = rhs(y, params)
+    k2 = rhs(y + h / 2 * k1, params)
+    k3 = rhs(y + h / 2 * k2, params)
+    k4 = rhs(y + h * k3, params)
+    return y + h/6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
 
-def roll_out(x0,h,rhs,params,num_steps,method):
-    def step(x,_):
-        x_next = method(x,h,rhs,params)
-        return x_next,x_next
-    _, xs = lax.scan(step,x0,None,length = num_steps)
-    return jnp.concatenate([x0[None,:], xs], axis=0)
+def roll_out(y0, h, rhs, params, num_steps, method):
+    def step(y, _):
+        y_next = method(y, h, rhs, params)
+        return y_next,y_next
+    _, xs = lax.scan(step, y0, None, length = num_steps)
+    return jnp.concatenate([y0[None, :], xs], axis=0)
 
