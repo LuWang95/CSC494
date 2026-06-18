@@ -34,10 +34,15 @@ def experiment_title(results):
 
 def plot_trajectories(results, save_dir=None):
     true_train = as_array(results["true_traj"])
+    noisy_train = as_array(results.get("noisy_train_traj", true_train))
     pred_train = as_array(results["pred_traj"])
+    true_train_plot = as_array(results.get("true_extrapolate_traj", true_train))
+    pred_train_plot = as_array(results.get("pred_extrapolate_traj", pred_train))
     true_val = as_array(results.get("true_validation_traj", true_train))
     pred_val = as_array(results.get("pred_validation_traj", pred_train))
     t_obs = get_time_grid(results, true_train)
+    t_plot = as_array(results.get("t_extrapolate", t_obs))
+    extrapolation_start = float(results.get("extrapolation_start", t_obs[-1]))
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     fig.suptitle(
@@ -46,8 +51,42 @@ def plot_trajectories(results, save_dir=None):
     )
     for i, label in enumerate(SPECIES):
         train_ax = axes[0, i]
-        train_ax.plot(t_obs, true_train[:, i], "--", alpha=0.7, label="true")
-        train_ax.plot(t_obs, pred_train[:, i], alpha=0.9, label="predicted")
+        train_ax.plot(
+            t_plot,
+            true_train_plot[:, i],
+            "k--",
+            alpha=0.8,
+            label="clean true",
+        )
+        train_ax.scatter(
+            t_obs,
+            noisy_train[:, i],
+            color="tab:orange",
+            s=10,
+            alpha=0.55,
+            label="noisy observation",
+        )
+        train_ax.plot(
+            t_plot,
+            pred_train_plot[:, i],
+            color="tab:blue",
+            alpha=0.9,
+            label="predicted",
+        )
+        if t_plot[-1] > t_obs[-1]:
+            train_ax.axvline(
+                extrapolation_start,
+                color="tab:red",
+                linestyle=":",
+                linewidth=1.5,
+                label="extrapolation starts",
+            )
+            train_ax.axvspan(
+                extrapolation_start,
+                float(t_plot[-1]),
+                color="tab:red",
+                alpha=0.06,
+            )
         train_ax.set_xlabel("t")
         train_ax.set_ylabel(label)
         train_ax.set_title(f"Training initial condition: {label}(t)")
@@ -55,8 +94,14 @@ def plot_trajectories(results, save_dir=None):
         train_ax.grid(True)
 
         val_ax = axes[1, i]
-        val_ax.plot(t_obs, true_val[:, i], "--", alpha=0.7, label="true")
-        val_ax.plot(t_obs, pred_val[:, i], alpha=0.9, label="predicted")
+        val_ax.plot(t_obs, true_val[:, i], "k--", alpha=0.8, label="clean true")
+        val_ax.plot(
+            t_obs,
+            pred_val[:, i],
+            color="tab:blue",
+            alpha=0.9,
+            label="predicted",
+        )
         val_ax.set_xlabel("t")
         val_ax.set_ylabel(label)
         val_ax.set_title(f"Validation initial condition: {label}(t)")
@@ -169,8 +214,58 @@ def print_trajectory_check(title, t_obs, pred, true):
         )
 
 
+def print_vector_field_check(results):
+    eps = 1e-8
+    test_states = as_array(results.get("test_states", results["states"][:5]))
+    nn_residual = as_array(
+        results.get("sample_nn_residual", results["learned_residual"][: len(test_states)])
+    )
+    true_residual = as_array(
+        results.get("sample_true_residual", results["true_residual"][: len(test_states)])
+    )
+    model_vf = as_array(
+        results.get("sample_model_vf", results["model_vf"][: len(test_states)])
+    )
+    true_vf = as_array(
+        results.get("sample_true_vf", results["true_vf"][: len(test_states)])
+    )
+
+    print("\nVector field check at sample states")
+    print("-" * 125)
+    print(
+        f"{'state':>16} | "
+        f"{'NN residual':>24} | "
+        f"{'true residual':>24} | "
+        f"{'res rel err':>12} | "
+        f"{'model rhs':>24} | "
+        f"{'true rhs':>24} | "
+        f"{'rhs rel err':>12}"
+    )
+    print("-" * 125)
+
+    for state, nn_res, true_res, model, true in zip(
+        test_states,
+        nn_residual,
+        true_residual,
+        model_vf,
+        true_vf,
+    ):
+        res_rel = np.linalg.norm(nn_res - true_res) / (np.linalg.norm(true_res) + eps)
+        rhs_rel = np.linalg.norm(model - true) / (np.linalg.norm(true) + eps)
+        print(
+            f"{str([float(state[0]), float(state[1])]):>16} | "
+            f"{str([round(float(nn_res[0]), 4), round(float(nn_res[1]), 4)]):>24} | "
+            f"{str([round(float(true_res[0]), 4), round(float(true_res[1]), 4)]):>24} | "
+            f"{float(res_rel):12.4e} | "
+            f"{str([round(float(model[0]), 4), round(float(model[1]), 4)]):>24} | "
+            f"{str([round(float(true[0]), 4), round(float(true[1]), 4)]):>24} | "
+            f"{float(rhs_rel):12.4e}"
+        )
+
+
 def print_summary(results):
     true_train = as_array(results["true_traj"])
+    noisy_train = as_array(results.get("noisy_train_traj", true_train))
     pred_train = as_array(results["pred_traj"])
     true_val = as_array(results.get("true_validation_traj", true_train))
     pred_val = as_array(results.get("pred_validation_traj", pred_train))
@@ -183,29 +278,83 @@ def print_summary(results):
     print(f"ratio                  : {results.get('ratio', 'N/A')}")
     print(f"h_model                : {float(results['h_model']):.6f}")
     print(f"best loss              : {metric(results, 'best_loss')}")
+    print(f"train clean loss       : {metric(results, 'train_clean_loss')}")
+    print(f"train noisy loss       : {metric(results, 'train_noisy_loss')}")
+    if "best_stage" in results:
+        print(f"best stage             : {results['best_stage']}")
+        print(f"best epoch             : {results.get('best_epoch', 'N/A')}")
+        print(f"best NN lr             : {metric(results, 'best_nn_lr')}")
+        print(f"best physics lr        : {metric(results, 'best_physics_lr')}")
+        print(f"best residual scale    : {metric(results, 'best_residual_scale')}")
+        print(f"best L2 weight         : {metric(results, 'best_l2_weight')}")
+        print(f"best ortho weight      : {metric(results, 'best_ortho_weight')}")
+        print(f"train L2 regularization: {metric(results, 'train_l2_regularization')}")
+        print(
+            "train ortho regularize : "
+            f"{metric(results, 'train_orthogonality_regularization')}"
+        )
+        print(
+            "regularized objective  : "
+            f"{metric(results, 'train_regularized_objective')}"
+        )
     print(f"validation loss        : {metric(results, 'validation_loss')}")
+    if "extrapolation_start" in results:
+        print(f"extrapolation starts at: t = {float(results['extrapolation_start']):.3f}")
     print(f"learned physics params : {results.get('learned_f_physics', 'N/A')}")
     print("=" * 80)
 
-    print_trajectory_check("Train trajectory check", t_obs, pred_train, true_train)
+    print_trajectory_check("Train clean trajectory check", t_obs, pred_train, true_train)
+    print_trajectory_check("Train noisy observation check", t_obs, pred_train, noisy_train)
     print_trajectory_check("Validation trajectory check", t_obs, pred_val, true_val)
 
-    print("\nGlobal metrics on vector-field grid")
+    print("\nTrajectory metrics")
     print("-" * 80)
-    print(f"train batch MSE             : {metric(results, 'train_batch_mse')}")
-    print(f"train batch rel error       : {metric(results, 'train_batch_rel_error')}")
+    print(f"train clean batch MSE       : {metric(results, 'train_clean_batch_mse')}")
+    print(
+        "train clean batch rel error : "
+        f"{metric(results, 'train_clean_batch_rel_error')}"
+    )
+    print(f"train noisy batch MSE       : {metric(results, 'train_noisy_batch_mse')}")
+    print(
+        "train noisy batch rel error : "
+        f"{metric(results, 'train_noisy_batch_rel_error')}"
+    )
     print(f"validation batch MSE        : {metric(results, 'validation_batch_mse')}")
     print(
         "validation batch rel error  : "
         f"{metric(results, 'validation_batch_rel_error')}"
     )
-    print(f"train sample MSE            : {metric(results, 'sample_traj_mse')}")
-    print(f"train sample rel error      : {metric(results, 'sample_traj_rel_error')}")
+    print(f"train clean sample MSE      : {metric(results, 'train_sample_clean_mse')}")
+    print(
+        "train clean sample rel error: "
+        f"{metric(results, 'train_sample_clean_rel_error')}"
+    )
+    print(f"train noisy sample MSE      : {metric(results, 'train_sample_noisy_mse')}")
+    print(
+        "train noisy sample rel error: "
+        f"{metric(results, 'train_sample_noisy_rel_error')}"
+    )
     print(f"validation sample MSE       : {metric(results, 'validation_sample_mse')}")
     print(
         "validation sample rel error : "
         f"{metric(results, 'validation_sample_rel_error')}"
     )
+    print(f"extrapolation sample MSE    : {metric(results, 'extrapolate_sample_mse')}")
+    print(
+        "extrapolation sample rel err: "
+        f"{metric(results, 'extrapolate_sample_rel_error')}"
+    )
+    print(f"extrapolation batch MSE     : {metric(results, 'extrapolate_batch_mse')}")
+    print(
+        "extrapolation batch rel err : "
+        f"{metric(results, 'extrapolate_batch_rel_error')}"
+    )
+
+    print("\nVector-field metrics on grid")
+    print("-" * 80)
+    print_vector_field_check(results)
+    print("\nVector-field aggregate metrics")
+    print("-" * 80)
     print(f"residual MSE                : {metric(results, 'residual_mse')}")
     print(f"residual relative error     : {metric(results, 'residual_rel_error')}")
     print(f"model vector field MSE      : {metric(results, 'model_vf_mse')}")

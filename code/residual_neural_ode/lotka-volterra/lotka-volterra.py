@@ -5,64 +5,63 @@ import pickle
 from jax import jit, lax, value_and_grad, vmap
 from jax import random
 import jax.nn as jnn
+
+
 from solver import*
 from functools import partial
-from visualize_oscillator import visualize_results
+from visualize_lotka_volterra import visualize_results
 
 
 
 # -----------------------------
 
-# Duffing oscillator model (x = displacement, v = velocity)
-# dx/dt = v
-# dv/dt = -rv - ax - bx^3
-# state y = [x, v]
+# Lotka-Volterra model (x = prey, y = predator)
+# dx/dt = a x - b x y
+# dy/dt = -r y + z x y
+# state y = [prey, predator]
 # -----------------------------
 
-r = 0.2
 a = 1
-b = 0.1
+b = 0.05
+r = 1.5
+z = 0.03
 noise_level = 0.01
 
 y0_batch = jnp.array([
-    [-2.0, -1.0],
-    [-2.0,  1.0],
-    [-1.0, -2.0],
-    [-1.0,  2.0],
-    [ 1.0, -2.0],
-    [ 1.0,  2.0],
-    [ 2.0, -1.0],
-    [ 2.0,  1.0],
+    [15.0, 25.0],
+    [10.0, 20.0],
+    [20.0, 30.0],
+    [12.0, 22.0],
+    [18.0, 28.0],
+    [8.0, 18.0],
+    [22.0, 26.0],
+    [16.0, 15.0],
 ])
 
 y0_validation = jnp.array([
-    [-1.0, -1.0],
-    [1.0, 1.0],
-    [-1.5, -1.5],
-    [1.5, 1.5],
-    [0.5, 1.0],
-    [-0.5, -1.0],
+    [17.0, 25.0],
+    [10.0, 23.0],
+    [19.0, 24.0],
 ])
 
 T = 5
 num_observed = 101
 t_obs = jnp.linspace(0.0, T, num_observed)
-T_extrapolate = 2 * T
-num_extrapolate_observed = 2 * (num_observed - 1) + 1
+T_extrapolate = 4 * T
+num_extrapolate_observed = 4 * (num_observed - 1) + 1
 t_extrapolate = jnp.linspace(0.0, T_extrapolate, num_extrapolate_observed)
 ratio = 10
 h_model = (t_obs[1] - t_obs[0]) / ratio
 
-def duffing(t, y, args):
-    x,v = y[0], y[1]
-    dx_dt = v
-    dv_dt = -r * v -a * x - b*x**3
-
-    return jnp.array([dx_dt, dv_dt])
+def lotka_volterra(t, y, args):
+    prey, predator = y[0], y[1]
+    dxdt = a * prey - b * prey * predator
+    dydt = -r * predator + z * prey * predator
+    return jnp.array([dxdt, dydt])
 
 
 def solve_reference(y0):
-    term = diffrax.ODETerm(duffing)
+    term = diffrax.ODETerm(lotka_volterra)
     solver = diffrax.Tsit5()
     saveat = diffrax.SaveAt(ts=t_obs)
     stepsize_controller = diffrax.PIDController(
@@ -84,7 +83,7 @@ def solve_reference(y0):
     return sol.ys
 
 def solve_reference_extrapolate(y0):
-    term = diffrax.ODETerm(duffing)
+    term = diffrax.ODETerm(lotka_volterra)
     solver = diffrax.Tsit5()
     saveat = diffrax.SaveAt(ts=t_extrapolate)
     stepsize_controller = diffrax.PIDController(
@@ -135,24 +134,13 @@ step_size = 3e-3
 num_epochs = 30000
 nn_params = init_network_params(layer_sizes, random.key(0))
 # incomplete physics: linear growth/decay only (missing xy interaction)
-f_physics_params = jnp.array([0.2,1.0])
+f_physics_params = jnp.array([0.5, -1])
 params = {"nn_params": nn_params, "f_physics": f_physics_params}
-residual_penalty_weight = 1e-4
-correlation_penalty_weight = 1e-2
-optimizer = optax.multi_transform(
-    {
-        "train": optax.adam(step_size),
-        "freeze": optax.set_to_zero()
-    },
-    {
-        "nn_params": "train",
-        "f_physics": "freeze"
-    }
-)
+optimizer = optax.adam(step_size)
 opt_state = optimizer.init(params)
 
 
-state_scale = jnp.array([3.0, 3.0])
+state_scale = jnp.array([50.0, 50.0])
 def nn(y, nn_parameters):
     activations = y / state_scale
     for w, b in nn_parameters[:-1]:
@@ -163,38 +151,14 @@ def nn(y, nn_parameters):
 
 ## fphysics only learns linear growth/decay
 def f_physics(y, f_physics_params):
-    x, v = y[0], y[1]
-    return jnp.array([v, -f_physics_params[0] * x - f_physics_params[1] * v,])
+    prey, predator = y[0], y[1]
+    return jnp.array([
+        f_physics_params[0] * prey,
+        f_physics_params[1] * predator,
+    ])
 
 def model_rhs(y, params):
     return f_physics(y, params["f_physics"]) + nn(y, params["nn_params"])
-
-def squared_correlation(x, basis):
-    x_centered = x - jnp.mean(x)
-    basis_centered = basis - jnp.mean(basis)
-    numerator = jnp.sum(x_centered * basis_centered)
-    denominator = (
-        jnp.linalg.norm(x_centered)
-        * jnp.linalg.norm(basis_centered)
-        + 1e-8
-    )
-    return (numerator / denominator) ** 2
-
-def residual_regularization_terms(parameters, trajectory):
-    residual = vmap(lambda y: nn(y, parameters["nn_params"]))(trajectory)
-    residual_norm_penalty = jnp.mean(residual ** 2)
-    rv_x_correlation_penalty = squared_correlation(residual[:, 1], trajectory[:, 0])
-    return residual_norm_penalty, rv_x_correlation_penalty
-
-def batch_residual_regularization_terms(parameters, trajectories):
-    residual_norm_penalties, rv_x_correlation_penalties = vmap(
-        residual_regularization_terms,
-        in_axes=(None, 0),
-    )(parameters, trajectories)
-    return (
-        jnp.mean(residual_norm_penalties),
-        jnp.mean(rv_x_correlation_penalties),
-    )
 
 @partial(jit, static_argnames=("step_ratio",))
 def loss(parameters, y0, true_trajectory, h, step_ratio):
@@ -210,21 +174,9 @@ def batch_loss(parameters, y0_batch, true_trajectories, h, step_ratio):
     data_loss = jnp.mean(losses)
     return data_loss
 
-@partial(jit, static_argnames=("step_ratio",))
-def training_objective(parameters, y0_batch, true_trajectories, h, step_ratio):
-    data_loss = batch_loss(parameters, y0_batch, true_trajectories, h, step_ratio)
-    residual_norm_penalty, rv_x_correlation_penalty = (
-        batch_residual_regularization_terms(parameters, true_trajectories)
-    )
-    return (
-        data_loss
-        + residual_penalty_weight * residual_norm_penalty
-        + correlation_penalty_weight * rv_x_correlation_penalty
-    )
-
 def train_step(carry, _):
     parameters, opt_state = carry
-    loss_val, grads = value_and_grad(training_objective)(
+    loss_val, grads = value_and_grad(batch_loss)(
         parameters,
         y0_batch,
         observed_batch,
@@ -309,29 +261,29 @@ pred_extrapolate_batch_full = vmap(
 pred_extrapolate_batch = pred_extrapolate_batch_full[:, ::ratio, :]
 
 ## phase portrait: true vs learned vector field
-x_min, x_max = -3.0, 3.0
-v_min, v_max = -3.0, 3.0
+prey_min, prey_max = 5.0, 25.0
+pred_min, pred_max = 10.0, 40.0
 nx, ny = 20, 20
-x_vals = jnp.linspace(x_min, x_max, nx)
-v_vals = jnp.linspace(v_min, v_max, ny)
-X, V = jnp.meshgrid(x_vals, v_vals)
-states = jnp.stack([X.reshape(-1), V.reshape(-1)], axis=1)
+prey_vals = jnp.linspace(prey_min, prey_max, nx)
+pred_vals = jnp.linspace(pred_min, pred_max, ny)
+Prey, Pred = jnp.meshgrid(prey_vals, pred_vals)
+states = jnp.stack([Prey.reshape(-1), Pred.reshape(-1)], axis=1)
 
-def true_oscillator_rhs(state):
-    return duffing(0.0, state, None)
+def true_lv_rhs(state):
+    return lotka_volterra(0.0, state, None)
 
-true_vf = vmap(true_oscillator_rhs)(states)
+true_vf = vmap(true_lv_rhs)(states)
 physics_vf = vmap(lambda s: f_physics(s, params["f_physics"]))(states)
 nn_vf = vmap(lambda s: nn(s, params["nn_params"]))(states)
 model_vf = vmap(lambda s: model_rhs(s, params))(states)
 
 test_states = jnp.array([
-    [-2.0, -1.0],
-    [-1.0,  2.0],
-    [ 1.0, -2.0],
-    [ 2.0,  1.0],
+    [15.0, 25.0],
+    [10.0, 20.0],
+    [20.0, 30.0],
+    [16.0, 15.0],
 ])
-sample_true_vf = vmap(true_oscillator_rhs)(test_states)
+sample_true_vf = vmap(true_lv_rhs)(test_states)
 sample_physics_vf = vmap(lambda s: f_physics(s, params["f_physics"]))(test_states)
 sample_nn_residual = vmap(lambda s: nn(s, params["nn_params"]))(test_states)
 sample_model_vf = vmap(lambda s: model_rhs(s, params))(test_states)
@@ -354,14 +306,6 @@ model_vf_rel_error = (
 )
 train_clean_loss = batch_loss(params, y0_batch, observed_batch_clean, h_model, ratio)
 train_noisy_loss = batch_loss(params, y0_batch, observed_batch, h_model, ratio)
-train_residual_norm_penalty, train_correlation_penalty = (
-    batch_residual_regularization_terms(params, observed_batch)
-)
-train_regularized_objective = (
-    train_noisy_loss
-    + residual_penalty_weight * train_residual_norm_penalty
-    + correlation_penalty_weight * train_correlation_penalty
-)
 train_sample_clean_mse = jnp.mean((pred_obs - observed_batch_clean[index]) ** 2)
 train_sample_clean_rel_error = (
     jnp.linalg.norm(pred_obs - observed_batch_clean[index])
@@ -430,7 +374,7 @@ extrapolate_batch_rel_error = (
 )
 
 results = {
-    "experiment_type": "Duffing oscillator | true physics prior | fixed physics params",
+    "experiment_type": "Lotka-Volterra | wrong physics prior | trainable physics params",
     "best_loss": float(best_loss),
     "ratio": ratio,
     "h_model": float(h_model),
@@ -438,8 +382,6 @@ results = {
     "t_extrapolate": t_extrapolate,
     "extrapolation_start": float(T),
     "step_size": step_size,
-    "residual_penalty_weight": residual_penalty_weight,
-    "correlation_penalty_weight": correlation_penalty_weight,
     "pred_traj": pred_obs,
     "true_traj": observed_batch_clean[index],
     "noisy_train_traj": observed_batch[index],
@@ -463,9 +405,6 @@ results = {
     "learned_residual": nn_vf,
     "train_clean_loss": float(train_clean_loss),
     "train_noisy_loss": float(train_noisy_loss),
-    "train_residual_norm_penalty": float(train_residual_norm_penalty),
-    "train_correlation_penalty": float(train_correlation_penalty),
-    "train_regularized_objective": float(train_regularized_objective),
     "sample_traj_mse": float(train_sample_clean_mse),
     "sample_traj_rel_error": float(train_sample_clean_rel_error),
     "train_sample_clean_mse": float(train_sample_clean_mse),
@@ -499,7 +438,7 @@ results = {
     "states": states,
 }
 
-with open("oscillator_true_physics_fixed.pkl", "wb") as f:
+with open("wrong_physics_trainable.pkl", "wb") as f:
     pickle.dump(results, f)
 
 visualize_results(results)

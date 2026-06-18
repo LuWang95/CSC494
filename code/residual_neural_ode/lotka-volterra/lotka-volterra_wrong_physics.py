@@ -23,6 +23,7 @@ a = 1
 b = 0.05
 r = 1.5
 z = 0.03
+noise_level = 0.01
 
 y0_batch = jnp.array([
     [15.0, 25.0],
@@ -45,7 +46,10 @@ y0_validation = jnp.array([
 T = 5
 num_observed = 101
 t_obs = jnp.linspace(0.0, T, num_observed)
-ratio = 20
+T_extrapolate = 2 * T
+num_extrapolate_observed = 2 * (num_observed - 1) + 1
+t_extrapolate = jnp.linspace(0.0, T_extrapolate, num_extrapolate_observed)
+ratio = 10
 h_model = (t_obs[1] - t_obs[0]) / ratio
 
 def lotka_volterra(t, y, args):
@@ -76,8 +80,38 @@ def solve_reference(y0):
         max_steps=100000
     )
     return sol.ys
-observed_batch = vmap(solve_reference)(y0_batch)
-observed_validation = vmap(solve_reference)(y0_validation)
+
+def solve_reference_extrapolate(y0):
+    term = diffrax.ODETerm(lotka_volterra)
+    solver = diffrax.Tsit5()
+    saveat = diffrax.SaveAt(ts=t_extrapolate)
+    stepsize_controller = diffrax.PIDController(
+        rtol=1e-9,
+        atol=1e-9
+    )
+    sol = diffrax.diffeqsolve(
+        term,
+        solver,
+        t0=0.0,
+        t1=T_extrapolate,
+        dt0=1e-3,
+        y0=y0,
+        saveat=saveat,
+        stepsize_controller=stepsize_controller,
+        max_steps=100000
+    )
+    return sol.ys
+
+observed_batch_clean = vmap(solve_reference)(y0_batch)
+observed_validation_clean = vmap(solve_reference)(y0_validation)
+key = random.key(42)
+train_noise = (
+    noise_level
+    * observed_batch_clean
+    * random.normal(key, observed_batch_clean.shape)
+)
+observed_batch = observed_batch_clean + train_noise
+observed_validation = observed_validation_clean
 print(observed_batch.shape)
 print(observed_validation.shape)
 
@@ -99,7 +133,7 @@ step_size = 3e-3
 num_epochs = 30000
 nn_params = init_network_params(layer_sizes, random.key(0))
 # incomplete physics: linear growth/decay only (missing xy interaction)
-f_physics_params = jnp.array([1.0, -1.5])
+f_physics_params = jnp.array([0.5, -1])
 params = {"nn_params": nn_params, "f_physics": f_physics_params}
 optimizer = optax.multi_transform(
     {
@@ -185,13 +219,13 @@ for chunk in range(num_chunks):
     params, opt_state, losses = train_chunk(params, opt_state)
     epoch = (chunk + 1) * chunk_size
     l = losses[-1]
+    print(f"epoch {epoch}, loss = {l}")
     if best_loss - float(l) > min_delta:
         best_loss = float(l)
         best_params = params
         counter = 0
     else:
         counter += chunk_size
-    print(f"epoch {epoch}, loss = {l}")
     if counter >= patience:
         print(
             f"Early stopping at epoch {epoch}, "
@@ -223,6 +257,17 @@ pred_validation_batch_full = vmap(
 )(y0_validation)
 pred_validation_batch = pred_validation_batch_full[:, ::ratio, :]
 
+num_extrapolate_steps = int((num_extrapolate_observed - 1) * ratio)
+true_extrapolate_batch = vmap(solve_reference_extrapolate)(y0_batch)
+pred_extrapolate_full = roll_out(
+    y0_batch[index], h_model, model_rhs, params, num_extrapolate_steps, rk4
+)
+pred_extrapolate_obs = pred_extrapolate_full[::ratio]
+pred_extrapolate_batch_full = vmap(
+    lambda y0: roll_out(y0, h_model, model_rhs, params, num_extrapolate_steps, rk4)
+)(y0_batch)
+pred_extrapolate_batch = pred_extrapolate_batch_full[:, ::ratio, :]
+
 ## phase portrait: true vs learned vector field
 prey_min, prey_max = 5.0, 25.0
 pred_min, pred_max = 10.0, 40.0
@@ -240,6 +285,18 @@ physics_vf = vmap(lambda s: f_physics(s, params["f_physics"]))(states)
 nn_vf = vmap(lambda s: nn(s, params["nn_params"]))(states)
 model_vf = vmap(lambda s: model_rhs(s, params))(states)
 
+test_states = jnp.array([
+    [15.0, 25.0],
+    [10.0, 20.0],
+    [20.0, 30.0],
+    [16.0, 15.0],
+])
+sample_true_vf = vmap(true_lv_rhs)(test_states)
+sample_physics_vf = vmap(lambda s: f_physics(s, params["f_physics"]))(test_states)
+sample_nn_residual = vmap(lambda s: nn(s, params["nn_params"]))(test_states)
+sample_model_vf = vmap(lambda s: model_rhs(s, params))(test_states)
+sample_true_residual = sample_true_vf - sample_physics_vf
+
 # -----------------------------
 # Metrics for saved results
 # -----------------------------
@@ -255,13 +312,25 @@ model_vf_rel_error = (
     jnp.linalg.norm(model_vf - true_vf) / (jnp.linalg.norm(true_vf) + eps)
 
 )
-sample_traj_mse = jnp.mean((pred_obs - observed_batch[index]) ** 2)
-sample_traj_rel_error = (
+train_clean_loss = batch_loss(params, y0_batch, observed_batch_clean, h_model, ratio)
+train_noisy_loss = batch_loss(params, y0_batch, observed_batch, h_model, ratio)
+train_sample_clean_mse = jnp.mean((pred_obs - observed_batch_clean[index]) ** 2)
+train_sample_clean_rel_error = (
+    jnp.linalg.norm(pred_obs - observed_batch_clean[index])
+    / (jnp.linalg.norm(observed_batch_clean[index]) + eps)
+)
+train_sample_noisy_mse = jnp.mean((pred_obs - observed_batch[index]) ** 2)
+train_sample_noisy_rel_error = (
     jnp.linalg.norm(pred_obs - observed_batch[index])
     / (jnp.linalg.norm(observed_batch[index]) + eps)
 )
-train_batch_mse = jnp.mean((pred_batch - observed_batch) ** 2)
-train_batch_rel_error = (
+train_clean_batch_mse = jnp.mean((pred_batch - observed_batch_clean) ** 2)
+train_clean_batch_rel_error = (
+    jnp.linalg.norm(pred_batch - observed_batch_clean)
+    / (jnp.linalg.norm(observed_batch_clean) + eps)
+)
+train_noisy_batch_mse = jnp.mean((pred_batch - observed_batch) ** 2)
+train_noisy_batch_rel_error = (
     jnp.linalg.norm(pred_batch - observed_batch)
     / (jnp.linalg.norm(observed_batch) + eps)
 )
@@ -278,18 +347,59 @@ validation_batch_rel_error = (
     jnp.linalg.norm(pred_validation_batch - observed_validation)
     / (jnp.linalg.norm(observed_validation) + eps)
 )
+extrapolate_metric_start = num_observed
+extrapolate_sample_mse = jnp.mean(
+    (
+        pred_extrapolate_obs[extrapolate_metric_start:]
+        - true_extrapolate_batch[index, extrapolate_metric_start:]
+    ) ** 2
+)
+extrapolate_sample_rel_error = (
+    jnp.linalg.norm(
+        pred_extrapolate_obs[extrapolate_metric_start:]
+        - true_extrapolate_batch[index, extrapolate_metric_start:]
+    )
+    / (
+        jnp.linalg.norm(true_extrapolate_batch[index, extrapolate_metric_start:])
+        + eps
+    )
+)
+extrapolate_batch_mse = jnp.mean(
+    (
+        pred_extrapolate_batch[:, extrapolate_metric_start:, :]
+        - true_extrapolate_batch[:, extrapolate_metric_start:, :]
+    ) ** 2
+)
+extrapolate_batch_rel_error = (
+    jnp.linalg.norm(
+        pred_extrapolate_batch[:, extrapolate_metric_start:, :]
+        - true_extrapolate_batch[:, extrapolate_metric_start:, :]
+    )
+    / (
+        jnp.linalg.norm(true_extrapolate_batch[:, extrapolate_metric_start:, :])
+        + eps
+    )
+)
 
 results = {
-    "experiment_type": "Lotka-Volterra | true physics prior | fixed physics params",
+    "experiment_type": "Lotka-Volterra | wrong physics prior | fixed physics params",
     "best_loss": float(best_loss),
     "ratio": ratio,
     "h_model": float(h_model),
     "t_obs": t_obs,
+    "t_extrapolate": t_extrapolate,
+    "extrapolation_start": float(T),
     "step_size": step_size,
     "pred_traj": pred_obs,
-    "true_traj": observed_batch[index],
+    "true_traj": observed_batch_clean[index],
+    "noisy_train_traj": observed_batch[index],
     "pred_train_batch": pred_batch,
-    "true_train_batch": observed_batch,
+    "true_train_batch": observed_batch_clean,
+    "noisy_train_batch": observed_batch,
+    "pred_extrapolate_traj": pred_extrapolate_obs,
+    "true_extrapolate_traj": true_extrapolate_batch[index],
+    "pred_extrapolate_batch": pred_extrapolate_batch,
+    "true_extrapolate_batch": true_extrapolate_batch,
     "pred_validation_traj": pred_validation_obs,
     "true_validation_traj": observed_validation[validation_index],
     "pred_validation_batch": pred_validation_batch,
@@ -301,23 +411,43 @@ results = {
     "model_vf": model_vf,
     "true_residual": true_residual,
     "learned_residual": nn_vf,
-    "sample_traj_mse": float(sample_traj_mse),
-    "sample_traj_rel_error": float(sample_traj_rel_error),
-    "train_batch_mse": float(train_batch_mse),
-    "train_batch_rel_error": float(train_batch_rel_error),
+    "train_clean_loss": float(train_clean_loss),
+    "train_noisy_loss": float(train_noisy_loss),
+    "sample_traj_mse": float(train_sample_clean_mse),
+    "sample_traj_rel_error": float(train_sample_clean_rel_error),
+    "train_sample_clean_mse": float(train_sample_clean_mse),
+    "train_sample_clean_rel_error": float(train_sample_clean_rel_error),
+    "train_sample_noisy_mse": float(train_sample_noisy_mse),
+    "train_sample_noisy_rel_error": float(train_sample_noisy_rel_error),
+    "train_batch_mse": float(train_clean_batch_mse),
+    "train_batch_rel_error": float(train_clean_batch_rel_error),
+    "train_clean_batch_mse": float(train_clean_batch_mse),
+    "train_clean_batch_rel_error": float(train_clean_batch_rel_error),
+    "train_noisy_batch_mse": float(train_noisy_batch_mse),
+    "train_noisy_batch_rel_error": float(train_noisy_batch_rel_error),
     "validation_loss": float(validation_loss),
     "validation_sample_mse": float(validation_sample_mse),
     "validation_sample_rel_error": float(validation_sample_rel_error),
     "validation_batch_mse": float(validation_batch_mse),
     "validation_batch_rel_error": float(validation_batch_rel_error),
+    "extrapolate_sample_mse": float(extrapolate_sample_mse),
+    "extrapolate_sample_rel_error": float(extrapolate_sample_rel_error),
+    "extrapolate_batch_mse": float(extrapolate_batch_mse),
+    "extrapolate_batch_rel_error": float(extrapolate_batch_rel_error),
     "residual_mse": float(residual_mse),
     "residual_rel_error": float(residual_rel_error),
     "model_vf_mse": float(model_vf_mse),
     "model_vf_rel_error": float(model_vf_rel_error),
+    "test_states": test_states,
+    "sample_nn_residual": sample_nn_residual,
+    "sample_true_residual": sample_true_residual,
+    "sample_model_vf": sample_model_vf,
+    "sample_true_vf": sample_true_vf,
     "states": states,
 }
 
-with open("true_physics_fixed.pkl", "wb") as f:
+with open("wrong_physics_fixed.pkl", "wb") as f:
     pickle.dump(results, f)
 
 visualize_results(results)
+
