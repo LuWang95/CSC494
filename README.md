@@ -169,9 +169,9 @@ Classical parameter estimation methods and pure Neural ODE models will first be 
 # Current Status
 
 - [x] Initial proposal
-- [ ] Baseline parameter estimation
-- [ ] Pure Neural ODE implementation
-- [ ] Residual Neural ODE implementation
+- [x] Baseline parameter estimation
+- [x] Pure Neural ODE implementation
+- [x] Residual Neural ODE implementation
 - [ ] Numerical error propagation experiments
 - [ ] Final analysis and report
 
