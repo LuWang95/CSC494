@@ -9,7 +9,7 @@ import jax.nn as jnn
 
 from solver import*
 from functools import partial
-from visualize_lotka_volterra import visualize_results
+from code.error_propagation.visualize_lotka_volterra import visualize_results
 
 
 
@@ -312,9 +312,9 @@ training_stages = [
         "epochs": 4000,
         "nn_lr": 1e-3,
         "physics_lr": 3e-4,
-        "residual_scale": 0.3,
+        "residual_scale": 1.0,
         "l2_weight": 1e-4,
-        "ortho_weight": 3e-3,
+        "ortho_weight": 1e-3,
         "patience": 1000,
     },
     {

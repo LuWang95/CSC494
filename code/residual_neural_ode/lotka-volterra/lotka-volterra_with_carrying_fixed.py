@@ -9,7 +9,7 @@ import jax.nn as jnn
 
 from solver import*
 from functools import partial
-from visualize_lotka_volterra import visualize_results
+from code.error_propagation.visualize_lotka_volterra import visualize_results
 
 
 
@@ -398,10 +398,11 @@ extrapolate_batch_rel_error = (
 )
 
 results = {
-    "experiment_type": "Lotka-Volterra | wrong physics prior | trainable physics params",
+    "experiment_type": "Lotka-Volterra | true physics prior | fixed physics params",
     "best_loss": float(best_loss),
     "ratio": ratio,
     "h_model": float(h_model),
+    "noise_level": float(noise_level),
     "t_obs": t_obs,
     "t_extrapolate": t_extrapolate,
     "extrapolation_start": float(T),

@@ -9,8 +9,7 @@ import jax.nn as jnn
 
 from solver import*
 from functools import partial
-from visualize_lotka_volterra import visualize_results
-
+from code.error_propagation.visualize_lotka_volterra import visualize_results
 
 
 # -----------------------------

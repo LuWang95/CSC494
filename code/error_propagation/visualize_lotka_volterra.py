@@ -32,6 +32,42 @@ def experiment_title(results):
     return results.get("experiment_type", "Lotka-Volterra experiment")
 
 
+def experiment_metadata(results):
+    solver_type = results.get(
+        "solver_type",
+        results.get("solver_method", results.get("method", "rk4")),
+    )
+    step_size = results.get(
+        "integration_step_size",
+        results.get("solver_step_size", results.get("h_model")),
+    )
+    ratio = results.get("ratio")
+    noise_level = results.get("noise_level", results.get("train_noise_level"))
+
+    metadata = [f"solver: {solver_type}"]
+    if step_size is not None:
+        metadata.append(f"step size: {float(step_size):.6g}")
+    if ratio is not None:
+        metadata.append(f"ratio: {ratio}")
+    metadata.append(
+        f"noise level: {float(noise_level):.6g}"
+        if noise_level is not None
+        else "noise level: N/A"
+    )
+    return " | ".join(metadata)
+
+
+def add_experiment_metadata(fig, results):
+    fig.text(
+        0.5,
+        0.01,
+        experiment_metadata(results),
+        ha="center",
+        va="bottom",
+        fontsize=10,
+    )
+
+
 def plot_trajectories(results, save_dir=None):
     true_train = as_array(results["true_traj"])
     noisy_train = as_array(results.get("noisy_train_traj", true_train))
@@ -108,7 +144,8 @@ def plot_trajectories(results, save_dir=None):
         val_ax.legend()
         val_ax.grid(True)
 
-    fig.tight_layout()
+    add_experiment_metadata(fig, results)
+    fig.tight_layout(rect=(0, 0.04, 1, 0.95))
     if save_dir is not None:
         fig.savefig(save_dir / "trajectories.png", dpi=200)
 
@@ -131,10 +168,195 @@ def plot_quiver(ax, prey_grid, pred_grid, vf, nx, ny, title):
     ax.set_title(title)
 
 
+def vector_components(vf, nx, ny):
+    vf = as_array(vf)
+    return vf[:, 0].reshape(ny, nx), vf[:, 1].reshape(ny, nx)
+
+
+def normalized_vector_components(vf, nx, ny):
+    u, v = vector_components(vf, nx, ny)
+    norm = np.sqrt(u**2 + v**2)
+    norm = np.where(norm > 0, norm, 1.0)
+    return u / norm, v / norm
+
+def plot_vector_field_raw_overlay(results, prey_grid, pred_grid, nx, ny, save_dir=None):
+    true_vf = as_array(results["true_vf"])
+    model_vf = as_array(results["model_vf"])
+
+    true_u, true_v = vector_components(true_vf, nx, ny)
+    model_u, model_v = vector_components(model_vf, nx, ny)
+
+    error_norm = np.linalg.norm(model_vf - true_vf, axis=1).reshape(ny, nx)
+
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+    fig.suptitle(
+        f"{experiment_title(results)}: raw true vs model vector field",
+        fontsize=14,
+    )
+
+    error_map = ax.contourf(
+        prey_grid,
+        pred_grid,
+        error_norm,
+        levels=20,
+        cmap="magma",
+        alpha=0.45,
+    )
+    fig.colorbar(error_map, ax=ax, label="||model rhs - true rhs||")
+
+    ax.quiver(
+        prey_grid,
+        pred_grid,
+        model_u,
+        model_v,
+        color="tab:blue",
+        angles="xy",
+        alpha=0.65,
+        label="model field",
+    )
+    ax.quiver(
+        prey_grid,
+        pred_grid,
+        true_u,
+        true_v,
+        color="black",
+        angles="xy",
+        alpha=0.9,
+        label="true field",
+    )
+
+    ax.set_xlabel("prey")
+    ax.set_ylabel("predator")
+    ax.set_title("Raw vector fields with RHS error magnitude")
+    ax.legend(loc="upper right")
+    ax.grid(True, alpha=0.25)
+
+    add_experiment_metadata(fig, results)
+    fig.tight_layout(rect=(0, 0.06, 1, 0.9))
+
+    if save_dir is not None:
+        fig.savefig(save_dir / "vector_field_overlay_raw.png", dpi=200)
+
+def plot_vector_field_overlay(results, prey_grid, pred_grid, nx, ny, save_dir=None):
+    true_vf = as_array(results["true_vf"])
+    model_vf = as_array(results["model_vf"])
+    true_u, true_v = normalized_vector_components(true_vf, nx, ny)
+    model_u, model_v = normalized_vector_components(model_vf, nx, ny)
+    error_norm = np.linalg.norm(model_vf - true_vf, axis=1).reshape(ny, nx)
+
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+    fig.suptitle(
+        f"{experiment_title(results)}: true vs model vector field",
+        fontsize=14,
+    )
+    error_map = ax.contourf(
+        prey_grid,
+        pred_grid,
+        error_norm,
+        levels=20,
+        cmap="magma",
+        alpha=0.45,
+    )
+    fig.colorbar(error_map, ax=ax, label="||model rhs - true rhs||")
+    ax.quiver(
+        prey_grid,
+        pred_grid,
+        model_u,
+        model_v,
+        color="tab:blue",
+        angles="xy",
+        scale=25,
+        width=0.006,
+        alpha=0.65,
+        label="model direction",
+    )
+    ax.quiver(
+        prey_grid,
+        pred_grid,
+        true_u,
+        true_v,
+        color="black",
+        angles="xy",
+        scale=25,
+        width=0.0025,
+        alpha=0.95,
+        label="true direction",
+    )
+    ax.set_xlabel("prey")
+    ax.set_ylabel("predator")
+    ax.set_title("Overlayed normalized directions with RHS error magnitude")
+    ax.legend(loc="upper right")
+    ax.grid(True, alpha=0.25)
+    add_experiment_metadata(fig, results)
+    fig.tight_layout(rect=(0, 0.06, 1, 0.9))
+    if save_dir is not None:
+        fig.savefig(save_dir / "vector_field_overlay.png", dpi=200)
+
+
+def plot_vector_field_streamplot(results, prey_grid, pred_grid, nx, ny, save_dir=None):
+    true_vf = as_array(results["true_vf"])
+    model_vf = as_array(results["model_vf"])
+    true_u, true_v = vector_components(true_vf, nx, ny)
+    model_u, model_v = vector_components(model_vf, nx, ny)
+    error_norm = np.linalg.norm(model_vf - true_vf, axis=1).reshape(ny, nx)
+    prey_axis = prey_grid[0, :]
+    pred_axis = pred_grid[:, 0]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharex=True, sharey=True)
+    fig.suptitle(
+        f"{experiment_title(results)}: streamlines over RHS error",
+        fontsize=14,
+    )
+
+    error_maps = []
+    for ax, u, v, title, color in (
+        (axes[0], true_u, true_v, "True vector field streamlines", "black"),
+        (axes[1], model_u, model_v, "Model vector field streamlines", "tab:blue"),
+    ):
+        error_map = ax.contourf(
+            prey_grid,
+            pred_grid,
+            error_norm,
+            levels=20,
+            cmap="magma",
+            alpha=0.45,
+        )
+        error_maps.append(error_map)
+        ax.streamplot(
+            prey_axis,
+            pred_axis,
+            u,
+            v,
+            color=color,
+            density=1.2,
+            linewidth=1.2,
+            arrowsize=1.2,
+        )
+        ax.set_xlabel("prey")
+        ax.set_ylabel("predator")
+        ax.set_title(title)
+        ax.grid(True, alpha=0.25)
+
+    cbar_ax = fig.add_axes([0.92, 0.18, 0.018, 0.62])
+    fig.colorbar(
+        error_maps[-1],
+        cax=cbar_ax,
+        label="||model rhs - true rhs||",
+    )
+    add_experiment_metadata(fig, results)
+    fig.subplots_adjust(left=0.07, right=0.86, bottom=0.14, top=0.84, wspace=0.16)
+    if save_dir is not None:
+        fig.savefig(save_dir / "vector_field_streamplot.png", dpi=200)
+
+
 def plot_vector_fields(results, save_dir=None):
     prey_grid, pred_grid, nx, ny = vector_field_grid(results)
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    fig.suptitle(
+        f"{experiment_title(results)}: vector fields",
+        fontsize=14,
+    )
     plot_quiver(
         axes[0],
         prey_grid,
@@ -162,11 +384,20 @@ def plot_vector_fields(results, save_dir=None):
         ny,
         "Learned full vector field\nphysics prior + NN residual",
     )
-    fig.tight_layout()
+    add_experiment_metadata(fig, results)
+    fig.tight_layout(rect=(0, 0.08, 1, 0.88))
     if save_dir is not None:
         fig.savefig(save_dir / "vector_fields.png", dpi=200)
 
+    plot_vector_field_overlay(results, prey_grid, pred_grid, nx, ny, save_dir)
+    plot_vector_field_streamplot(results, prey_grid, pred_grid, nx, ny, save_dir)
+    plot_vector_field_raw_overlay(results, prey_grid, pred_grid, nx, ny, save_dir)
+
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    fig.suptitle(
+        f"{experiment_title(results)}: residual fields",
+        fontsize=14,
+    )
     plot_quiver(
         axes[0],
         prey_grid,
@@ -185,7 +416,8 @@ def plot_vector_fields(results, save_dir=None):
         ny,
         "Learned missing dynamics\nNN residual field",
     )
-    fig.tight_layout()
+    add_experiment_metadata(fig, results)
+    fig.tight_layout(rect=(0, 0.08, 1, 0.88))
     if save_dir is not None:
         fig.savefig(save_dir / "residual_fields.png", dpi=200)
 
@@ -275,6 +507,12 @@ def print_summary(results):
     print("EXPERIMENT SUMMARY")
     print("=" * 80)
     print(f"experiment type        : {results.get('experiment_type', 'unknown')}")
+    print(f"solver type            : {results.get('solver_type', results.get('solver_method', results.get('method', 'rk4')))}")
+    print(f"integration step size  : {float(results.get('integration_step_size', results.get('solver_step_size', results['h_model']))):.6f}")
+    if "noise_level" in results or "train_noise_level" in results:
+        print(f"noise level            : {float(results.get('noise_level', results.get('train_noise_level'))):.6f}")
+    else:
+        print("noise level            : N/A")
     print(f"ratio                  : {results.get('ratio', 'N/A')}")
     print(f"h_model                : {float(results['h_model']):.6f}")
     print(f"best loss              : {metric(results, 'best_loss')}")
