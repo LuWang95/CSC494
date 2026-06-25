@@ -33,22 +33,35 @@ def experiment_title(results):
 
 
 def experiment_metadata(results):
-    solver_type = results.get(
-        "solver_type",
-        results.get("solver_method", results.get("method", "rk4")),
+    training_method = results.get(
+        "training_method",
+        results.get("solver_type", results.get("solver_method", results.get("method", "rk4"))),
+    )
+    prediction_method = results.get(
+        "prediction_method",
+        results.get("solver_type", results.get("solver_method", results.get("method", "rk4"))),
     )
     step_size = results.get(
         "integration_step_size",
         results.get("solver_step_size", results.get("h_model")),
     )
+    prediction_step_size = results.get("h_predict", results.get("prediction_step_size"))
     ratio = results.get("ratio")
+    predict_ratio = results.get("predict_ratio", results.get("prediction_ratio"))
     noise_level = results.get("noise_level", results.get("train_noise_level"))
 
-    metadata = [f"solver: {solver_type}"]
+    metadata = [
+        f"training method: {training_method}",
+        f"prediction method: {prediction_method}",
+    ]
     if step_size is not None:
-        metadata.append(f"step size: {float(step_size):.6g}")
+        metadata.append(f"train step: {float(step_size):.6g}")
+    if prediction_step_size is not None:
+        metadata.append(f"predict step: {float(prediction_step_size):.6g}")
     if ratio is not None:
-        metadata.append(f"ratio: {ratio}")
+        metadata.append(f"train ratio: {ratio}")
+    if predict_ratio is not None:
+        metadata.append(f"predict ratio: {predict_ratio}")
     metadata.append(
         f"noise level: {float(noise_level):.6g}"
         if noise_level is not None
@@ -507,13 +520,25 @@ def print_summary(results):
     print("EXPERIMENT SUMMARY")
     print("=" * 80)
     print(f"experiment type        : {results.get('experiment_type', 'unknown')}")
-    print(f"solver type            : {results.get('solver_type', results.get('solver_method', results.get('method', 'rk4')))}")
-    print(f"integration step size  : {float(results.get('integration_step_size', results.get('solver_step_size', results['h_model']))):.6f}")
+    print(
+        "training method        : "
+        f"{results.get('training_method', results.get('solver_type', results.get('solver_method', results.get('method', 'rk4'))))}"
+    )
+    print(
+        "prediction method      : "
+        f"{results.get('prediction_method', results.get('solver_type', results.get('solver_method', results.get('method', 'rk4'))))}"
+    )
+    print(f"training step size     : {float(results.get('integration_step_size', results.get('solver_step_size', results['h_model']))):.6f}")
+    if "h_predict" in results or "prediction_step_size" in results:
+        print(f"prediction step size   : {float(results.get('h_predict', results.get('prediction_step_size'))):.6f}")
+    else:
+        print("prediction step size   : N/A")
     if "noise_level" in results or "train_noise_level" in results:
         print(f"noise level            : {float(results.get('noise_level', results.get('train_noise_level'))):.6f}")
     else:
         print("noise level            : N/A")
-    print(f"ratio                  : {results.get('ratio', 'N/A')}")
+    print(f"training ratio         : {results.get('ratio', 'N/A')}")
+    print(f"prediction ratio       : {results.get('predict_ratio', results.get('prediction_ratio', 'N/A'))}")
     print(f"h_model                : {float(results['h_model']):.6f}")
     print(f"best loss              : {metric(results, 'best_loss')}")
     print(f"train clean loss       : {metric(results, 'train_clean_loss')}")

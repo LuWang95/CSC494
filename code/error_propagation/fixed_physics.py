@@ -10,6 +10,8 @@ import jax.nn as jnn
 from solver import*
 from functools import partial
 from visualize_lotka_volterra import visualize_results
+from jax import config
+config.update("jax_enable_x64", True)
 
 
 
@@ -28,6 +30,10 @@ z = 0.03
 c = 0.005
 
 noise_level = 0.01
+
+training_method = rk4
+prediction_method = rk4
+adaptive_step_size = False
 
 y0_batch = jnp.array([
     [15.0, 25.0],
@@ -52,8 +58,9 @@ t_obs = jnp.linspace(0.0, T, num_observed)
 T_extrapolate = 4 * T
 num_extrapolate_observed = 4 * (num_observed - 1) + 1
 t_extrapolate = jnp.linspace(0.0, T_extrapolate, num_extrapolate_observed)
-ratio = 10
-h_model = (t_obs[1] - t_obs[0]) / ratio
+ratio = 5
+predict_ratio = 5
+h_model = (t_obs[1] - t_obs[0]) / ratio if not adaptive_step_size else 0.0
 
 def lotka_volterra(t, y, args):
     prey, predator = y[0], y[1]
@@ -174,7 +181,7 @@ def model_rhs(y, params):
 @partial(jit, static_argnames=("step_ratio",))
 def loss(parameters, y0, true_trajectory, h, step_ratio):
     num_steps = (true_trajectory.shape[0] - 1) * step_ratio
-    pred_full = roll_out(y0,h,model_rhs,parameters,num_steps,rk4)
+    pred_full = roll_out(y0,h,model_rhs,parameters,num_steps,training_method)
     pred_useful = pred_full[::step_ratio]
     return jnp.mean((true_trajectory - pred_useful)**2)
 
@@ -257,32 +264,34 @@ params = best_params
 index = 0
 validation_index = 0
 num_steps = int((observed_batch.shape[1] - 1) * ratio)
+predict_steps = int((observed_batch.shape[1] - 1) * predict_ratio)
+h_predict = (t_obs[1] - t_obs[0]) / predict_ratio if not adaptive_step_size else 0.0
 
-pred_full = roll_out(y0_batch[0], h_model, model_rhs, params, num_steps, rk4)
-pred_obs = pred_full[::ratio]
+pred_full = roll_out(y0_batch[0], h_predict, model_rhs, params, predict_steps, prediction_method)
+pred_obs = pred_full[::predict_ratio]
 pred_batch_full = vmap(
-    lambda y0: roll_out(y0, h_model, model_rhs, params, num_steps, rk4)
+    lambda y0: roll_out(y0, h_predict, model_rhs, params, predict_steps, prediction_method)
 )(y0_batch)
-pred_batch = pred_batch_full[:, ::ratio, :]
+pred_batch = pred_batch_full[:, ::predict_ratio, :]
 pred_validation_full = roll_out(
-    y0_validation[validation_index], h_model, model_rhs, params, num_steps, rk4
+    y0_validation[validation_index], h_predict, model_rhs, params, predict_steps, prediction_method
 )
-pred_validation_obs = pred_validation_full[::ratio]
+pred_validation_obs = pred_validation_full[::predict_ratio]
 pred_validation_batch_full = vmap(
-    lambda y0: roll_out(y0, h_model, model_rhs, params, num_steps, rk4)
+    lambda y0: roll_out(y0, h_predict, model_rhs, params, predict_steps, prediction_method)
 )(y0_validation)
-pred_validation_batch = pred_validation_batch_full[:, ::ratio, :]
+pred_validation_batch = pred_validation_batch_full[:, ::predict_ratio, :]
 
-num_extrapolate_steps = int((num_extrapolate_observed - 1) * ratio)
+num_extrapolate_steps = int((num_extrapolate_observed - 1) * predict_ratio)
 true_extrapolate_batch = vmap(solve_reference_extrapolate)(y0_batch)
 pred_extrapolate_full = roll_out(
-    y0_batch[index], h_model, model_rhs, params, num_extrapolate_steps, rk4
+    y0_batch[index], h_predict, model_rhs, params, num_extrapolate_steps, prediction_method
 )
-pred_extrapolate_obs = pred_extrapolate_full[::ratio]
+pred_extrapolate_obs = pred_extrapolate_full[::predict_ratio]
 pred_extrapolate_batch_full = vmap(
-    lambda y0: roll_out(y0, h_model, model_rhs, params, num_extrapolate_steps, rk4)
+    lambda y0: roll_out(y0, h_predict, model_rhs, params, num_extrapolate_steps, prediction_method)
 )(y0_batch)
-pred_extrapolate_batch = pred_extrapolate_batch_full[:, ::ratio, :]
+pred_extrapolate_batch = pred_extrapolate_batch_full[:, ::predict_ratio, :]
 
 ## phase portrait: true vs learned vector field
 prey_min, prey_max = 5.0, 25.0
@@ -399,9 +408,13 @@ extrapolate_batch_rel_error = (
 
 results = {
     "experiment_type": "Lotka-Volterra | wrong physics prior | trainable physics params",
+    "training_method": training_method.__name__,
+    "prediction_method": prediction_method.__name__,
     "best_loss": float(best_loss),
     "ratio": ratio,
+    "predict_ratio": predict_ratio,
     "h_model": float(h_model),
+    "h_predict": float(h_predict),
     "noise_level": float(noise_level),
     "t_obs": t_obs,
     "t_extrapolate": t_extrapolate,
@@ -443,10 +456,13 @@ results = {
     "train_noisy_batch_mse": float(train_noisy_batch_mse),
     "train_noisy_batch_rel_error": float(train_noisy_batch_rel_error),
     "validation_loss": float(validation_loss),
+    "validation_training_loss": float(validation_loss),
     "validation_sample_mse": float(validation_sample_mse),
     "validation_sample_rel_error": float(validation_sample_rel_error),
     "validation_batch_mse": float(validation_batch_mse),
+    "validation_prediction_batch_mse": float(validation_batch_mse),
     "validation_batch_rel_error": float(validation_batch_rel_error),
+    "validation_prediction_batch_rel_error": float(validation_batch_rel_error),
     "extrapolate_sample_mse": float(extrapolate_sample_mse),
     "extrapolate_sample_rel_error": float(extrapolate_sample_rel_error),
     "extrapolate_batch_mse": float(extrapolate_batch_mse),
@@ -463,7 +479,18 @@ results = {
     "states": states,
 }
 
-with open("wrong_physics_trainable.pkl", "wb") as f:
+
+experiment_name = (
+    f"h={h_model:.5f}"
+    f"_train={training_method.__name__}"
+    f"_train_ratio={ratio}"
+    f"_pred={prediction_method.__name__}"
+    f"_pred_ratio={predict_ratio}"
+    f"_noise={noise_level}"
+)
+
+with open(f"{experiment_name}.pkl", "wb") as f:
+
     pickle.dump(results, f)
 
 visualize_results(results)
