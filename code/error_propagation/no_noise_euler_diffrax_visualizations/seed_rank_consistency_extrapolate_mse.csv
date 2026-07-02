@@ -1,0 +1,12 @@
+training_method,metric,seed_i,seed_j,spearman_rank_correlation
+forward_euler,extrapolate_mse,0,1,0.9999999999999999
+forward_euler,extrapolate_mse,0,2,0.9999999999999999
+forward_euler,extrapolate_mse,0,3,0.9999999999999999
+forward_euler,extrapolate_mse,0,4,0.9999999999999999
+forward_euler,extrapolate_mse,1,2,0.9999999999999999
+forward_euler,extrapolate_mse,1,3,0.9999999999999999
+forward_euler,extrapolate_mse,1,4,0.9999999999999999
+forward_euler,extrapolate_mse,2,3,0.9999999999999999
+forward_euler,extrapolate_mse,2,4,0.9999999999999999
+forward_euler,extrapolate_mse,3,4,0.9999999999999999
+forward_euler,extrapolate_mse,mean_pairwise,mean_pairwise,0.9999999999999998
