@@ -15,6 +15,7 @@ import optax
 from jax import jit, lax, random, value_and_grad, vmap
 
 from solver import forward_euler, heun, rk4, roll_out
+from experiment_metadata import write_run_manifest
 
 
 a, b, r, z, c = 1.0, 0.05, 1.5, 0.03, 0.001
@@ -67,6 +68,12 @@ TRAINING_CONFIGS = [
     ("euler_ratio16", forward_euler, 16),
     ("diffrax_tsit5", None, "adaptive"),
 ]
+
+DEFAULT_REGULARIZATION_PROFILE = {
+    "name": "none",
+    "l2_weight": 0.0,
+    "ortho_weight": 0.0,
+}
 
 
 def progress(message):
@@ -313,16 +320,6 @@ def scaled_training_stages(stage_scale):
             "ortho_weight": 0.0,
             "patience": 1200,
         },
-        {
-            "name": "stage 4 | physics fine tune",
-            "epochs": 1500,
-            "nn_lr": 0.0,
-            "physics_lr": 0.0,
-            "residual_scale": 1.0,
-            "l2_weight": 0.0,
-            "ortho_weight": 0.0,
-            "patience": 500,
-        },
     ]
     if stage_scale == 1.0:
         return stages
@@ -336,7 +333,27 @@ def scaled_training_stages(stage_scale):
     return scaled
 
 
-def train_one(seed, config_name, method, ratio, data, chunk_size, stage_scale):
+def normalize_regularization_profile(regularization_profile):
+    profile = dict(DEFAULT_REGULARIZATION_PROFILE)
+    if regularization_profile is not None:
+        profile.update(regularization_profile)
+    profile["name"] = str(profile["name"])
+    profile["l2_weight"] = float(profile["l2_weight"])
+    profile["ortho_weight"] = float(profile["ortho_weight"])
+    return profile
+
+
+def train_one(
+    seed,
+    config_name,
+    method,
+    ratio,
+    data,
+    chunk_size,
+    stage_scale,
+    regularization_profile=None,
+):
+    regularization_profile = normalize_regularization_profile(regularization_profile)
     params = initial_params(seed)
     batch_loss = make_batch_loss(method, ratio)
     training_objective = make_training_objective(batch_loss)
@@ -380,8 +397,8 @@ def train_one(seed, config_name, method, ratio, data, chunk_size, stage_scale):
         train_chunk = make_train_chunk(optimizer)
         params = {**params, "residual_scale": jnp.array(stage["residual_scale"])}
         opt_state = optimizer.init(params)
-        l2_weight = jnp.array(stage["l2_weight"])
-        ortho_weight = jnp.array(stage["ortho_weight"])
+        l2_weight = jnp.array(regularization_profile["l2_weight"])
+        ortho_weight = jnp.array(regularization_profile["ortho_weight"])
         n_chunks = stage["epochs"] // chunk_size
         progress(
             f"[train] {config_name}, seed={seed}, {stage['name']}, "
@@ -409,8 +426,8 @@ def train_one(seed, config_name, method, ratio, data, chunk_size, stage_scale):
                     "nn_lr": stage["nn_lr"],
                     "physics_lr": stage["physics_lr"],
                     "residual_scale": stage["residual_scale"],
-                    "l2_weight": stage["l2_weight"],
-                    "ortho_weight": stage["ortho_weight"],
+                    "l2_weight": regularization_profile["l2_weight"],
+                    "ortho_weight": regularization_profile["ortho_weight"],
                 }
             )
 
@@ -436,6 +453,9 @@ def train_one(seed, config_name, method, ratio, data, chunk_size, stage_scale):
         "ratio": ratio,
         "h_model": "adaptive" if method is None else obs_dt / ratio,
         "seed": seed,
+        "regularization_profile": regularization_profile["name"],
+        "l2_weight": regularization_profile["l2_weight"],
+        "ortho_weight": regularization_profile["ortho_weight"],
         "stage_history": stage_history,
     }
 
@@ -512,6 +532,9 @@ def evaluate(trained, data):
         "training_method": trained["training_method"],
         "ratio": trained["ratio"],
         "seed": trained["seed"],
+        "regularization_profile": trained.get("regularization_profile", "none"),
+        "l2_weight": trained.get("l2_weight", 0.0),
+        "ortho_weight": trained.get("ortho_weight", 0.0),
         "h_model": trained["h_model"],
         "evaluation_method": "diffrax_tsit5",
         "noise_level": noise_level,
@@ -555,6 +578,9 @@ def write_summary_csv(rows, path):
         "training_method",
         "ratio",
         "seed",
+        "regularization_profile",
+        "l2_weight",
+        "ortho_weight",
         "h_model",
         "evaluation_method",
         "noise_level",
@@ -627,6 +653,25 @@ def save_results(output_dir, rows, details, trained_models):
 def run_sweep(output_dir, seeds, chunk_size, stage_scale):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_run_manifest(
+        output_dir,
+        "carrying_solver_sweep",
+        {
+            "seeds": list(seeds),
+            "chunk_size": chunk_size,
+            "stage_scale": stage_scale,
+            "noise_level": noise_level,
+            "training_configs": [
+                {
+                    "name": name,
+                    "method": method.__name__ if method is not None else "diffrax_tsit5",
+                    "ratio": ratio,
+                }
+                for name, method, ratio in TRAINING_CONFIGS
+            ],
+            "regularization_profile": DEFAULT_REGULARIZATION_PROFILE,
+        },
+    )
     progress(f"[setup] writing results to {output_dir}")
     progress("[setup] building reference data")
     data = make_reference_data()

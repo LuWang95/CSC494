@@ -165,6 +165,18 @@ Classical parameter estimation methods and pure Neural ODE models will first be 
 
 # Repository Structure
 
+- `code/library_exploration/`: early JAX and parameter-recovery prototypes.
+- `code/error_propagation/`: solver-error baselines, train/predict solver sweeps,
+  no-noise controls, and seed-sensitivity analysis.
+- `code/residual_neural_ode/`: logistic, oscillator, and Lotka--Volterra
+  Residual Neural ODE experiments.
+- `code/residual_neural_ode/lotka-volterra/`: carrying-capacity solver,
+  regularization, and training-interval sweeps.
+- `meetings/`: weekly research presentations.
+- `papers/`: project references managed with Git LFS.
+
+See [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) for the pinned environment,
+canonical experiment commands, smoke tests, and provenance requirements.
 
 # Current Status
 
@@ -172,7 +184,10 @@ Classical parameter estimation methods and pure Neural ODE models will first be 
 - [x] Baseline parameter estimation
 - [x] Pure Neural ODE implementation
 - [x] Residual Neural ODE implementation
-- [ ] Numerical error propagation experiments
+- [x] Numerical error propagation experiments
+- [x] Solver/step-size/seed sweeps
+- [x] Carrying-capacity solver and regularization sweeps
+- [ ] Carrying-capacity training-interval sweep
 - [ ] Final analysis and report
 
 ---

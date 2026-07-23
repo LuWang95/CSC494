@@ -1,0 +1,49 @@
+{
+  "created_utc": "2026-07-15T06:12:31.975460+00:00",
+  "description": "Exact physics plus initially zero neural correction sweep",
+  "true_parameters": {
+    "a": 1.0,
+    "b": 0.05,
+    "r": 1.5,
+    "z": 0.03,
+    "c": 0.005
+  },
+  "train_horizon": 5.0,
+  "extrapolation_horizon": 20.0,
+  "base_dt": 0.05,
+  "jax_enable_x64": true,
+  "arguments": {
+    "output_dir": "/Users/franklinlu/PycharmProjects/CSC494/code/error_propagation/exact_physics_zero_residual_results",
+    "solvers": [
+      "forward_euler",
+      "heun",
+      "rk4"
+    ],
+    "ratios": [
+      1,
+      2,
+      4
+    ],
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "observation_stride": 1,
+    "num_epochs": 30000,
+    "step_size": 0.003,
+    "chunk_size": 50,
+    "patience": 3000,
+    "min_delta": 0.0,
+    "hidden_width": 64,
+    "hidden_scale": 0.01,
+    "residual_regularization": 0.0,
+    "reference_rtol": 1e-12,
+    "reference_atol": 1e-12,
+    "evaluation_rtol": 1e-09,
+    "evaluation_atol": 1e-09,
+    "plots": true
+  }
+}

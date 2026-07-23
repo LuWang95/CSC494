@@ -1,0 +1,5 @@
+train_interval,extrap_metric,n,param_extrap_log_log_pearson,param_extrap_spearman,vf_extrap_log_log_pearson,vf_extrap_spearman,param_vf_log_log_pearson,param_vf_spearman,matched_vf_n,matched_param_extrap_log_log_pearson,matched_param_extrap_spearman
+1.25,uncovered_ic_extrapolate_mse,10,0.1986139306688901,0.18787878787878787,0.6021094100367128,0.8181818181818182,-0.37027604295460614,-0.19999999999999998,0,nan,nan
+2.5,uncovered_ic_extrapolate_mse,10,nan,nan,nan,nan,0.6089734262550587,0.7818181818181817,0,nan,nan
+5.0,uncovered_ic_extrapolate_mse,10,nan,nan,nan,nan,0.256619069339814,0.17575757575757575,6,nan,nan
+7.5,uncovered_ic_extrapolate_mse,10,nan,nan,nan,nan,0.43229172907570035,0.24848484848484845,3,nan,nan

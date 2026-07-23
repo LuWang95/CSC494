@@ -1,0 +1,7 @@
+analysis,vf_low,vf_high,vf_bin_label,n,log_log_pearson,spearman,param_threshold_good,param_threshold_poor,n_good_param,n_poor_param,median_extrap_good_param,median_extrap_poor_param,overall_vf_extrap_loglog_r,vf_extrap_intercept,vf_extrap_slope
+matched_vf_band,0.001425,0.001575,$|E_{\mathrm{VF}} - 0.002| < 8e-05$ (\pm 5\%),8,0.5904969050369391,-0.14285714285714288,nan,nan,nan,nan,nan,nan,0.9137766967474781,nan,nan
+matched_vf_band_legacy,0.001,0.002,,103,0.4830155158574804,0.4840201203707772,nan,nan,nan,nan,nan,nan,0.9137766967474781,nan,nan
+vf_bin,0.0012,0.0015,$1.2\times10^{-3}$ to $1.5\times10^{-3}$,39,0.8373712486364563,0.676923076923077,nan,nan,nan,nan,nan,nan,nan,nan,nan
+vf_bin,0.0015,0.0025,$1.5\times10^{-3}$ to $2.5\times10^{-3}$,76,0.48126558661814306,0.31857826384142174,nan,nan,nan,nan,nan,nan,nan,nan,nan
+vf_bin,0.0025,0.008,$2.5\times10^{-3}$ to $8\times10^{-3}$,27,-0.10404466799253138,-0.009157509157509158,nan,nan,nan,nan,nan,nan,nan,nan,nan
+residual_extrapolation,nan,nan,,192,-0.031228294622312032,0.0417729159319643,nan,nan,nan,nan,nan,nan,nan,5.03379821384627,1.848627993265253

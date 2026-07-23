@@ -1,0 +1,42 @@
+{
+  "created_utc": "2026-07-14T23:18:44.145531+00:00",
+  "description": "One-parameter residual rollout-supervision experiment",
+  "fixed_physics": [
+    1.0,
+    0.05,
+    1.5,
+    0.03
+  ],
+  "true_alpha": 0.005,
+  "base_dt": 0.05,
+  "train_horizon": 5.0,
+  "extrapolation_horizon": 20.0,
+  "jax_enable_x64": true,
+  "arguments": {
+    "output_dir": "/Users/franklinlu/PycharmProjects/CSC494/code/error_propagation/one_parameter_solver_bias_results",
+    "solvers": [
+      "forward_euler",
+      "heun",
+      "rk4"
+    ],
+    "ratios": [
+      1,
+      2,
+      4,
+      8,
+      16
+    ],
+    "observation_stride": 1,
+    "alpha_min": 0.0,
+    "alpha_max": 0.02,
+    "grid_size": 201,
+    "xatol": 1e-12,
+    "bias_floor": 1e-11,
+    "reference_rtol": 1e-12,
+    "reference_atol": 1e-12,
+    "evaluation_rtol": 1e-10,
+    "evaluation_atol": 1e-10,
+    "include_diffrax_reference": true,
+    "plots": true
+  }
+}

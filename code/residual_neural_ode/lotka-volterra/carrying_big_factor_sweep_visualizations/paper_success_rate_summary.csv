@@ -1,0 +1,5 @@
+training_method,n_runs,threshold,success_rate
+forward_euler,60,1.0,0.16666666666666666
+heun,60,1.0,1.0
+rk4,60,1.0,0.9833333333333333
+diffrax_tsit5,12,1.0,1.0
