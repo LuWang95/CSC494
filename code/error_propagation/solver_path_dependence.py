@@ -39,7 +39,6 @@ import numpy as np
 import optax
 from jax import jit, lax, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
-from scipy.optimize import minimize
 
 import solver_error_sweep as base
 
@@ -219,6 +218,101 @@ def adam_phase(
     return nn_params, history
 
 
+def common_adam_refine(
+    nn_params,
+    objective_bundle,
+    learning_rates,
+    epochs_per_stage,
+    chunk_size,
+    seed,
+    early_solver,
+):
+    """Refine with one persistent Adam state across all RK4 LR stages.
+
+    Optimizer state is reset exactly once at the early-solver -> RK4 switch.
+    The moment estimates are then retained while the externally supplied
+    learning rate decreases. The lowest common RK4 objective observed at chunk
+    boundaries is retained as the starting point for L-BFGS.
+    """
+    optimizer = optax.scale_by_adam()
+    opt_state = optimizer.init(nn_params)
+
+    @jit
+    def train_chunk(parameters, state, learning_rate):
+        def step(carry, _):
+            current_params, current_state = carry
+            loss, grads = objective_bundle["value_and_grad"](current_params)
+            updates, current_state = optimizer.update(
+                grads,
+                current_state,
+                current_params,
+            )
+            updates = jax.tree_util.tree_map(
+                lambda update: -learning_rate * update,
+                updates,
+            )
+            current_params = optax.apply_updates(current_params, updates)
+            return (current_params, current_state), loss
+
+        (parameters, state), losses = lax.scan(
+            step,
+            (parameters, state),
+            None,
+            length=chunk_size,
+        )
+        return parameters, state, losses
+
+    best_params = nn_params
+    best_diagnostics = diagnose(nn_params, objective_bundle)
+    best_epoch = 0
+    history = []
+    common_epoch = 0
+
+    for learning_rate, stage_epochs in zip(
+        learning_rates,
+        epochs_per_stage,
+    ):
+        if stage_epochs % chunk_size != 0:
+            raise ValueError(
+                f"common stage epochs={stage_epochs} must be divisible by "
+                f"chunk_size={chunk_size}"
+            )
+        for stage_epoch in range(chunk_size, stage_epochs + 1, chunk_size):
+            nn_params, opt_state, _ = train_chunk(
+                nn_params,
+                opt_state,
+                jnp.asarray(learning_rate),
+            )
+            common_epoch += chunk_size
+            diagnostics = diagnose(nn_params, objective_bundle)
+            history.append(
+                history_row(
+                    seed=seed,
+                    early_solver=early_solver,
+                    phase="common_rk4_adam",
+                    phase_solver="rk4",
+                    phase_epoch=stage_epoch,
+                    common_epoch=common_epoch,
+                    learning_rate=learning_rate,
+                    diagnostics=diagnostics,
+                )
+            )
+            if diagnostics["objective"] < best_diagnostics["objective"]:
+                best_params = nn_params
+                best_diagnostics = diagnostics
+                best_epoch = common_epoch
+
+    return {
+        "final_params": nn_params,
+        "final_diagnostics": diagnose(nn_params, objective_bundle),
+        "best_params": best_params,
+        "best_diagnostics": best_diagnostics,
+        "best_epoch": best_epoch,
+        "history": history,
+        "total_epochs": common_epoch,
+    }
+
+
 def lbfgs_refine(
     nn_params,
     common_objective,
@@ -226,58 +320,109 @@ def lbfgs_refine(
     gtol,
     ftol,
     maxls,
+    objective_scale,
+    stationary_grad_rms,
+    stationary_grad_max,
 ):
-    """Full-batch L-BFGS refinement of NN parameters only."""
-    flat_initial, unravel = ravel_pytree(nn_params)
+    """Full-batch Optax L-BFGS with zoom line search.
+
+    SciPy L-BFGS-B can reject this rollout objective at iteration zero because
+    its line search fails the Wolfe conditions despite a valid local descent
+    direction. Optax's zoom line search is used here and the best objective
+    iterate is retained.
+    """
+    start_diagnostics = diagnose(nn_params, common_objective)
+    scaled_objective = lambda parameters: (
+        objective_scale * common_objective["objective"](parameters)
+    )
+    line_search = optax.scale_by_zoom_linesearch(
+        max_linesearch_steps=maxls,
+        initial_guess_strategy="one",
+        tol=0.0,
+        stepsize_precision=max(ftol, 1e-14),
+    )
+    optimizer = optax.lbfgs(
+        memory_size=20,
+        scale_init_precond=True,
+        linesearch=line_search,
+    )
+    opt_state = optimizer.init(nn_params)
+    scaled_value_and_grad = optax.value_and_grad_from_state(scaled_objective)
 
     @jit
-    def flat_value_and_grad(flat_parameters):
-        parameters = unravel(flat_parameters)
-        value, grads = common_objective["value_and_grad"](parameters)
-        flat_grads, _ = ravel_pytree(grads)
-        return value, flat_grads
+    def lbfgs_step(parameters, state):
+        value, grads = scaled_value_and_grad(parameters, state=state)
+        updates, state = optimizer.update(
+            grads,
+            state,
+            parameters,
+            value=value,
+            grad=grads,
+            value_fn=scaled_objective,
+        )
+        return optax.apply_updates(parameters, updates), state
 
-    def scipy_value_and_grad(flat_parameters):
-        value, gradient = flat_value_and_grad(jnp.asarray(flat_parameters))
-        return float(value), np.asarray(gradient, dtype=np.float64)
+    best_params = nn_params
+    best_objective = start_diagnostics["objective"]
+    iterations = 0
+    status = 1
+    message = "STOP: MAXIMUM OPTAX L-BFGS ITERATIONS REACHED"
+    final_diagnostics = start_diagnostics
 
-    start_diagnostics = diagnose(nn_params, common_objective)
-    result = minimize(
-        scipy_value_and_grad,
-        np.asarray(flat_initial, dtype=np.float64),
-        method="L-BFGS-B",
-        jac=True,
-        options={
-            "maxiter": maxiter,
-            "gtol": gtol,
-            "ftol": ftol,
-            "maxls": maxls,
-            "maxcor": 20,
-        },
-    )
-    candidate = unravel(jnp.asarray(result.x))
-    candidate_diagnostics = diagnose(candidate, common_objective)
+    for iteration in range(1, maxiter + 1):
+        nn_params, opt_state = lbfgs_step(nn_params, opt_state)
+        iterations = iteration
+        current_objective = float(common_objective["objective"](nn_params))
+        if not np.isfinite(current_objective):
+            status = 2
+            message = "STOP: NON-FINITE OBJECTIVE DURING OPTAX L-BFGS"
+            break
+        if current_objective < best_objective:
+            best_objective = current_objective
+            best_params = nn_params
 
-    # A failed line search can occasionally return a worse iterate. Retain the
-    # lower common objective, but report the SciPy status either way.
-    accepted = (
-        np.isfinite(candidate_diagnostics["objective"])
-        and candidate_diagnostics["objective"]
-        <= start_diagnostics["objective"]
+        # Auditing every five iterations avoids doubling the full gradient cost
+        # while still allowing early termination at the declared stationarity.
+        if iteration == 1 or iteration % 5 == 0 or iteration == maxiter:
+            final_diagnostics = diagnose(nn_params, common_objective)
+            if (
+                final_diagnostics["gradient_rms"] <= stationary_grad_rms
+                and final_diagnostics["gradient_max_abs"]
+                <= stationary_grad_max
+            ):
+                status = 0
+                message = "CONVERGED: DECLARED STATIONARITY THRESHOLDS MET"
+                best_params = nn_params
+                best_objective = final_diagnostics["objective"]
+                break
+
+    best_diagnostics = diagnose(best_params, common_objective)
+    accepted = bool(
+        best_diagnostics["objective"]
+        < start_diagnostics["objective"]
+        - max(ftol * max(abs(start_diagnostics["objective"]), 1.0), 1e-16)
     )
-    final_params = candidate if accepted else nn_params
-    final_diagnostics = (
-        candidate_diagnostics if accepted else start_diagnostics
+    final_params = best_params
+    final_diagnostics = best_diagnostics
+    success = bool(
+        final_diagnostics["gradient_rms"] <= stationary_grad_rms
+        and final_diagnostics["gradient_max_abs"] <= stationary_grad_max
     )
+    if success:
+        status = 0
+        message = "CONVERGED: DECLARED STATIONARITY THRESHOLDS MET"
     info = {
-        "lbfgs_success": bool(result.success),
-        "lbfgs_status": int(result.status),
-        "lbfgs_message": str(result.message),
-        "lbfgs_iterations": int(result.nit),
-        "lbfgs_function_evaluations": int(result.nfev),
+        "lbfgs_backend": "optax_lbfgs_zoom_linesearch",
+        "lbfgs_success": success,
+        "lbfgs_status": status,
+        "lbfgs_message": message,
+        "lbfgs_iterations": iterations,
+        "lbfgs_function_evaluations": "N/A",
         "lbfgs_accepted": bool(accepted),
+        "lbfgs_objective_scale": objective_scale,
+        "lbfgs_gtol_requested": gtol,
         "pre_lbfgs_objective": start_diagnostics["objective"],
-        "post_lbfgs_candidate_objective": candidate_diagnostics["objective"],
+        "post_lbfgs_candidate_objective": best_diagnostics["objective"],
         **{f"final_{key}": value for key, value in final_diagnostics.items()},
     }
     return final_params, info
@@ -640,12 +785,14 @@ def experiment_signature(args):
         "common_ratio": args.common_ratio,
         "common_adam_learning_rates": list(args.common_adam_learning_rates),
         "common_adam_epochs": list(args.common_adam_epochs),
+        "common_adam_persistent_state": True,
         "chunk_size": args.chunk_size,
         "residual_regularization": args.residual_regularization,
         "lbfgs_maxiter": args.lbfgs_maxiter,
         "lbfgs_gtol": args.lbfgs_gtol,
         "lbfgs_ftol": args.lbfgs_ftol,
         "lbfgs_maxls": args.lbfgs_maxls,
+        "lbfgs_objective_scale": args.lbfgs_objective_scale,
         "stationary_grad_rms": args.stationary_grad_rms,
         "stationary_grad_max": args.stationary_grad_max,
         "loss_close_rtol": args.loss_close_rtol,
@@ -686,12 +833,64 @@ def load_checkpoint(path, signature):
     )
 
 
+def load_reusable_early_params(path, args):
+    """Load completed early-phase endpoints from a previous experiment."""
+    if path is None:
+        return {}
+    path = Path(path)
+    if not path.exists():
+        progress(f"[setup] reusable early checkpoint not found: {path}")
+        return {}
+
+    with path.open("rb") as handle:
+        payload = pickle.load(handle)
+    source_signature = payload.get("signature", {})
+    expected = {
+        "early_ratio": args.early_ratio,
+        "early_epochs": args.early_epochs,
+        "early_learning_rate": args.early_learning_rate,
+        "chunk_size": args.chunk_size,
+        "residual_regularization": args.residual_regularization,
+    }
+    mismatches = {
+        key: (source_signature.get(key), value)
+        for key, value in expected.items()
+        if source_signature.get(key) != value
+    }
+    if mismatches:
+        progress(
+            "[setup] not reusing early checkpoint because its early-phase "
+            f"settings differ: {mismatches}"
+        )
+        return {}
+
+    source_trained = payload.get("trained", {})
+    reusable = {}
+    for seed in args.seeds:
+        for early_solver in args.early_solvers:
+            key = (int(seed), early_solver)
+            branch = source_trained.get(key)
+            if branch is not None and "after_early_nn_params" in branch:
+                reusable[key] = branch["after_early_nn_params"]
+    progress(
+        f"[setup] loaded {len(reusable)} reusable early-phase endpoints "
+        f"from {path}"
+    )
+    return reusable
+
+
 def run(args):
     if len(args.common_adam_learning_rates) != len(args.common_adam_epochs):
         raise ValueError(
             "--common-adam-learning-rates and --common-adam-epochs must "
             "have the same number of entries."
         )
+    if args.lbfgs_objective_scale <= 0:
+        raise ValueError("--lbfgs-objective-scale must be positive.")
+    if any(rate <= 0 for rate in args.common_adam_learning_rates):
+        raise ValueError("All common Adam learning rates must be positive.")
+    if any(epochs < 0 for epochs in args.common_adam_epochs):
+        raise ValueError("Common Adam epochs must be non-negative.")
     unknown = set(args.early_solvers) - set(SOLVERS)
     if unknown:
         raise ValueError(f"Unknown early solvers: {sorted(unknown)}")
@@ -712,6 +911,10 @@ def run(args):
     trained, summary_rows, history = load_checkpoint(
         checkpoint_path,
         signature,
+    )
+    reusable_early = load_reusable_early_params(
+        args.reuse_early_checkpoint,
+        args,
     )
     completed = set(trained)
     if completed:
@@ -754,19 +957,34 @@ def run(args):
                 )
             ]
 
-            after_early, early_history = adam_phase(
-                nn_params=initial_nn,
-                objective_bundle=early_objective,
-                learning_rate=args.early_learning_rate,
-                epochs=args.early_epochs,
-                chunk_size=args.chunk_size,
-                seed=seed,
-                early_solver=early_solver_name,
-                phase="early_solver_adam",
-                phase_solver=early_solver_name,
-                common_epoch_offset=0,
-            )
-            branch_history.extend(early_history)
+            if key in reusable_early:
+                after_early = reusable_early[key]
+                branch_history.append(
+                    history_row(
+                        seed=seed,
+                        early_solver=early_solver_name,
+                        phase="early_solver_reused",
+                        phase_solver=early_solver_name,
+                        phase_epoch=args.early_epochs,
+                        common_epoch=0,
+                        learning_rate=args.early_learning_rate,
+                        diagnostics=diagnose(after_early, early_objective),
+                    )
+                )
+            else:
+                after_early, early_history = adam_phase(
+                    nn_params=initial_nn,
+                    objective_bundle=early_objective,
+                    learning_rate=args.early_learning_rate,
+                    epochs=args.early_epochs,
+                    chunk_size=args.chunk_size,
+                    seed=seed,
+                    early_solver=early_solver_name,
+                    phase="early_solver_adam",
+                    phase_solver=early_solver_name,
+                    common_epoch_offset=0,
+                )
+                branch_history.extend(early_history)
             early_final = diagnose(after_early, early_objective)
             switch_common = diagnose(after_early, common_objective)
             branch_history.append(
@@ -782,37 +1000,28 @@ def run(args):
                 )
             )
 
-            current = after_early
-            common_epoch_offset = 0
-            for learning_rate, epochs in zip(
-                args.common_adam_learning_rates,
-                args.common_adam_epochs,
-            ):
-                # Reset optimizer state for every branch and every common
-                # learning-rate stage. Only parameters carry path information.
-                current, common_history = adam_phase(
-                    nn_params=current,
-                    objective_bundle=common_objective,
-                    learning_rate=learning_rate,
-                    epochs=epochs,
-                    chunk_size=args.chunk_size,
-                    seed=seed,
-                    early_solver=early_solver_name,
-                    phase="common_rk4_adam",
-                    phase_solver="rk4",
-                    common_epoch_offset=common_epoch_offset,
-                )
-                branch_history.extend(common_history)
-                common_epoch_offset += epochs
-
-            after_adam = diagnose(current, common_objective)
+            common_adam = common_adam_refine(
+                nn_params=after_early,
+                objective_bundle=common_objective,
+                learning_rates=args.common_adam_learning_rates,
+                epochs_per_stage=args.common_adam_epochs,
+                chunk_size=args.chunk_size,
+                seed=seed,
+                early_solver=early_solver_name,
+            )
+            branch_history.extend(common_adam["history"])
+            after_adam = common_adam["final_diagnostics"]
+            best_adam = common_adam["best_diagnostics"]
             final_nn, lbfgs_info = lbfgs_refine(
-                nn_params=current,
+                nn_params=common_adam["best_params"],
                 common_objective=common_objective,
                 maxiter=args.lbfgs_maxiter,
                 gtol=args.lbfgs_gtol,
                 ftol=args.lbfgs_ftol,
                 maxls=args.lbfgs_maxls,
+                objective_scale=args.lbfgs_objective_scale,
+                stationary_grad_rms=args.stationary_grad_rms,
+                stationary_grad_max=args.stationary_grad_max,
             )
             final_common = diagnose(final_nn, common_objective)
             stationary = bool(
@@ -827,7 +1036,7 @@ def run(args):
                     phase="common_rk4_lbfgs",
                     phase_solver="rk4",
                     phase_epoch=lbfgs_info["lbfgs_iterations"],
-                    common_epoch=common_epoch_offset,
+                    common_epoch=common_adam["total_epochs"],
                     learning_rate="N/A",
                     diagnostics=final_common,
                 )
@@ -855,6 +1064,9 @@ def run(args):
                 "switch_common_gradient_rms": switch_common["gradient_rms"],
                 "post_adam_common_objective": after_adam["objective"],
                 "post_adam_gradient_rms": after_adam["gradient_rms"],
+                "best_adam_common_objective": best_adam["objective"],
+                "best_adam_gradient_rms": best_adam["gradient_rms"],
+                "best_adam_common_epoch": common_adam["best_epoch"],
                 "final_common_objective": final_common["objective"],
                 "final_common_data_mse": final_common["data_mse"],
                 "final_common_regularization": final_common["regularization"],
@@ -874,6 +1086,8 @@ def run(args):
             trained[key] = {
                 "nn_params": final_nn,
                 "after_early_nn_params": after_early,
+                "after_common_adam_nn_params": common_adam["final_params"],
+                "best_common_adam_nn_params": common_adam["best_params"],
             }
             summary_rows.append(row)
             history.extend(branch_history)
@@ -959,7 +1173,21 @@ def parse_args():
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).with_name("solver_path_dependence_results"),
+        default=Path(__file__).with_name(
+            "solver_path_dependence_refined_results"
+        ),
+    )
+    parser.add_argument(
+        "--reuse-early-checkpoint",
+        type=Path,
+        default=(
+            Path(__file__).with_name("solver_path_dependence_results")
+            / "checkpoint.pkl"
+        ),
+        help=(
+            "Optional previous checkpoint from which matching "
+            "after_early_nn_params are reused."
+        ),
     )
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument(
@@ -976,20 +1204,29 @@ def parse_args():
         "--common-adam-learning-rates",
         nargs="+",
         type=float,
-        default=[1e-3, 3e-4, 1e-4],
+        default=[1e-3, 3e-4, 1e-4, 3e-5, 1e-5],
     )
     parser.add_argument(
         "--common-adam-epochs",
         nargs="+",
         type=int,
-        default=[3000, 6000, 12000],
+        default=[3000, 6000, 12000, 8000, 8000],
     )
     parser.add_argument("--chunk-size", type=int, default=100)
     parser.add_argument("--residual-regularization", type=float, default=1e-5)
-    parser.add_argument("--lbfgs-maxiter", type=int, default=250)
+    parser.add_argument("--lbfgs-maxiter", type=int, default=1000)
     parser.add_argument("--lbfgs-gtol", type=float, default=1e-8)
-    parser.add_argument("--lbfgs-ftol", type=float, default=1e-14)
-    parser.add_argument("--lbfgs-maxls", type=int, default=40)
+    parser.add_argument("--lbfgs-ftol", type=float, default=1e-12)
+    parser.add_argument("--lbfgs-maxls", type=int, default=100)
+    parser.add_argument(
+        "--lbfgs-objective-scale",
+        type=float,
+        default=1e3,
+        help=(
+            "Positive internal scaling used only by SciPy L-BFGS. The "
+            "reported objective and gradients remain unscaled."
+        ),
+    )
     parser.add_argument("--stationary-grad-rms", type=float, default=1e-7)
     parser.add_argument("--stationary-grad-max", type=float, default=1e-5)
     parser.add_argument("--loss-close-rtol", type=float, default=1e-3)

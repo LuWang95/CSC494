@@ -614,7 +614,7 @@ def parse_args():
     parser.add_argument(
         "--input-dir",
         type=Path,
-        default=script_dir / "solver_path_dependence_results",
+        default=script_dir / "solver_path_dependence_refined_results",
     )
     parser.add_argument(
         "--output-dir",

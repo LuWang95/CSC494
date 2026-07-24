@@ -1,0 +1,51 @@
+{
+  "description": "Test whether an early training solver leaves a persistent optimization-path effect.\n\nThe experiment deliberately separates two mechanisms:\n\n1. Path construction:\n   Starting from the *same initialization* for a given seed, train the UDE with\n   Euler, Heun, or RK4 for a fixed number of epochs.\n2. Common-objective refinement:\n   Reset all optimizer state, switch every branch to the *same* RK4 rollout\n   objective and step size, run the same Adam learning-rate schedule, and then\n   refine with full-batch L-BFGS.\n\nIf branches remain functionally different after they all satisfy the same\nstationarity criteria, the early solver has selected different stationary\nsolutions/basins of the common RK4 objective. If the differences disappear,\nthe early-solver effect was mainly transient rather than persistent.\n\nThis script reuses the clean Lotka--Volterra carrying-capacity data, fixed\nincomplete physics, and neural residual from ``solver_error_sweep.py``.\n",
+  "signature": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "early_solvers": [
+      "forward_euler",
+      "heun",
+      "rk4"
+    ],
+    "early_ratio": 1,
+    "early_epochs": 3000,
+    "early_learning_rate": 0.003,
+    "common_ratio": 4,
+    "common_adam_learning_rates": [
+      0.001,
+      0.0003,
+      0.0001
+    ],
+    "common_adam_epochs": [
+      3000,
+      6000,
+      12000
+    ],
+    "chunk_size": 100,
+    "residual_regularization": 1e-05,
+    "lbfgs_maxiter": 250,
+    "lbfgs_gtol": 1e-08,
+    "lbfgs_ftol": 1e-14,
+    "lbfgs_maxls": 40,
+    "stationary_grad_rms": 1e-07,
+    "stationary_grad_max": 1e-05,
+    "loss_close_rtol": 0.001,
+    "loss_close_atol": 1e-10,
+    "functional_difference_threshold": 0.001
+  },
+  "stationarity": {
+    "gradient_rms_threshold": 1e-07,
+    "gradient_max_abs_threshold": 1e-05
+  },
+  "path_effect_decision": {
+    "loss_close_rtol": 0.001,
+    "loss_close_atol": 1e-10,
+    "functional_difference_threshold_relative_to_true_residual": 0.001
+  },
+  "interpretation": "Parameter distance alone is not evidence because neural networks have parameter symmetries. Persistent path dependence should be judged from residual/vector-field differences between branches that both pass stationarity.",
+  "jax_enable_x64": true
+}

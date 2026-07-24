@@ -99,8 +99,7 @@ def true_rhs(state, params=None):
     )
 
 
-def diffrax_true_rhs(t, state, args):
-    del t, args
+def diffrax_true_rhs(_t, state, _args):
     return true_rhs(state)
 
 
