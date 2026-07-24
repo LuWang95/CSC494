@@ -1,0 +1,75 @@
+{
+  "experiment": "carrying_parameter_importance_sweep_training",
+  "git": {
+    "commit": "0fcdc54a769972ab2bea440be0a6227f6f574bc6",
+    "dirty": true
+  },
+  "parameters": {
+    "chunk_size": 100,
+    "coverage_eval_horizon": 10.0,
+    "coverage_radius": 2.5,
+    "evaluation_schema_version": 3,
+    "fixed_extrap_horizons": [
+      2.5,
+      5.0,
+      10.0
+    ],
+    "noise_level": 0.0,
+    "obs_dt": 0.05,
+    "parameter_importance_protocol_version": 1,
+    "ratio": 2,
+    "regularization_profiles": [
+      "none",
+      "l2_small",
+      "ortho_small",
+      "l2_plus_ortho"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "stage_scale": 1.0,
+    "t_final": 20.0,
+    "train_intervals": [
+      1.25,
+      2.5,
+      5.0,
+      7.5
+    ],
+    "training_protocol_version": 2
+  },
+  "runtime": {
+    "packages": {
+      "diffrax": "0.7.2",
+      "jax": "0.10.0",
+      "jaxlib": "0.10.0",
+      "numpy": "2.4.2",
+      "optax": "0.2.8"
+    },
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.6"
+  },
+  "schema_version": 1,
+  "source_sha256": {
+    "REPRODUCIBILITY.md": "e77191e1439ad40d01e2721f2830e62b190e218e7f7f14774f0cb81deb359ed3",
+    "code/residual_neural_ode/lotka-volterra/analyze_carrying_parameter_importance.py": "bc7ba1bb77711fd051a04fd7eb284d3b220d4e043a9ed405ab3ce488cf508f09",
+    "code/residual_neural_ode/lotka-volterra/carrying_big_factor_sweep.py": "6c446c064b352851f250511f7d28dc9a8b2f1d8d662d0feec5719229436f84d2",
+    "code/residual_neural_ode/lotka-volterra/carrying_parameter_importance_sweep.py": "43d6fdf475984cbccf446c19484e264d044cf595ef9910504dabd1b94a0972f5",
+    "code/residual_neural_ode/lotka-volterra/carrying_solver_sweep.py": "02c54d45ed3051a94e9af57c7765630390607ceeb67987fe9948c80a832fd0ee",
+    "code/residual_neural_ode/lotka-volterra/carrying_train_interval_sweep.py": "9bf8829070bd4e939dea8326f80f8af2c8526d2420be1758a82f89d2f6c3c10d",
+    "code/residual_neural_ode/lotka-volterra/experiment_metadata.py": "26f0a7f346d5c6e748d269f12a73a6473d2b11143a5e410d4663c62bf9365f77",
+    "code/residual_neural_ode/lotka-volterra/lotka-volterra.py": "b9aebe624c17db56025448962e6000b106db051dbf2fcd64b67260711e5860c5",
+    "code/residual_neural_ode/lotka-volterra/lotka-volterra_fixed.py": "65c8ef64b9fef486ebea1990d0e7c7468f5ed37d6195cdbfedbb297075dc15c4",
+    "code/residual_neural_ode/lotka-volterra/lotka-volterra_with_carrying.py": "ff410a4f1cbad1ea0ac4d1e5b4924461c1d4d5a1dd7b1e29a45c6309029df27d",
+    "code/residual_neural_ode/lotka-volterra/lotka-volterra_with_carrying_fixed.py": "01aebcbc4beeee42201909a0dd1b4e50a4b15a1b101642675f5bf4e4780bf3c2",
+    "code/residual_neural_ode/lotka-volterra/lotka-volterra_wrong_physics.py": "8c8e72957002ce3d4418bc501ed4a010dd01613ff1990aa66f37439a12a29317",
+    "code/residual_neural_ode/lotka-volterra/read_output.py": "30e734cf0bc7191583f0c1dd4428e14838526d32ba69555cb8280c3de1bbe720",
+    "code/residual_neural_ode/lotka-volterra/solver.py": "861cec3dde660ace023478e37a000e819e02e0cdd4023d66d3c5dd313093be53",
+    "code/residual_neural_ode/lotka-volterra/visualize_carrying_big_factor_sweep.py": "cd299890bfee81ca0793f77c91c30a3d177c35105900a8f746647314d0648ff0",
+    "code/residual_neural_ode/lotka-volterra/visualize_carrying_parameter_importance.py": "b6e19004bb6849ae020bc3d6ab1616589c9aadc59fc48923d979c9c3d9e483b4",
+    "code/residual_neural_ode/lotka-volterra/visualize_carrying_solver_sweep.py": "339de84eb2ef4f9a3ad058645802cba5a73f783bbe0d1f324145d4a7961f0af3",
+    "code/residual_neural_ode/lotka-volterra/visualize_carrying_train_interval_sweep.py": "f2e4dc830e44261f5b36a388ed65d05a604a62d973a60a9c2c6118637ff3bded",
+    "requirements.txt": "dfd542ad1d8ba8c0a364de2d52f580db2b5d93d429e1ac4fcbb037182ca84968"
+  }
+}
